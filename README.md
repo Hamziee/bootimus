@@ -57,7 +57,7 @@ docker run -d \
   -p 8080:8080/tcp \
   -p 8081:8081/tcp \
   -v $(pwd)/data:/app/data \
-  youruser/bootimus:latest
+  garybowers/bootimus:latest
 
 # Check logs for admin password
 docker logs bootimus | grep "Admin password"
@@ -70,7 +70,7 @@ open http://localhost:8081
 
 ```bash
 # Download binary (or build from source)
-wget https://github.com/youruser/bootimus/releases/latest/download/bootimus-amd64
+wget https://github.com/garybowers/bootimus/releases/latest/download/bootimus-amd64
 chmod +x bootimus-amd64
 
 # Create data directory
@@ -87,7 +87,7 @@ mkdir -p data
 
 ```bash
 # Clone repo
-git clone https://github.com/youruser/bootimus
+git clone https://github.com/garybowers/bootimus
 cd bootimus
 
 # Start with PostgreSQL
