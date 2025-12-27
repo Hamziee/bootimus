@@ -1,23 +1,191 @@
-# Bootimus - PXE/HTTP Boot Server with MAC Address Access Control
+# Bootimus - Modern PXE/HTTP Boot Server
 
-A production-ready PXE and HTTP boot server written in Go with PostgreSQL-backed MAC address and image access control. Bootimus serves boot files over TFTP (for traditional PXE) and HTTP (for HTTP boot/iPXE) with stateful management of client permissions.
+**A production-ready, self-contained PXE and HTTP boot server** written in Go with embedded iPXE bootloaders, SQLite/PostgreSQL support, and a full-featured web admin interface. Deploy in seconds with a single binary or Docker container.
+
+**Why Bootimus over iVentoy?**
+- ✅ **Self-contained**: Single binary with embedded bootloaders and web UI (no external dependencies)
+- ✅ **Modern**: Built with Go, RESTful API, proper HTTP Basic Auth, SQLite/PostgreSQL support
+- ✅ **Lightweight**: Runs anywhere - Docker, systemd, bare metal (amd64/arm64)
+- ✅ **Database-backed**: Track boot logs, client statistics, and granular MAC-based access control
+- ✅ **Production-ready**: Proper logging, metrics, API-first design, multi-arch Docker images
+- ✅ **Open Source**: Apache 2.0 license, actively maintained
 
 ## Features
 
-- **TFTP Server**: Serves files for traditional PXE boot (default port 69)
-- **HTTP Server**: Serves files for HTTP boot and iPXE (default port 8080)
-- **Admin Server**: Separate admin interface on port 8081 (isolated from boot network)
-- **Web Admin Interface**: Full-featured admin panel with embedded static UI
-- **HTTP Basic Authentication**: Auto-generated password on first run for admin security
-- **RESTful API**: Complete REST API for automation and integration
-- **Dynamic Boot Menus**: Programmatically generated iPXE menus based on client MAC address
-- **MAC Address Access Control**: PostgreSQL-backed permissions for fine-grained ISO access
-- **ISO Upload**: Web-based drag-and-drop ISO upload (up to 10GB)
-- **Stateful Tracking**: Logs boot attempts, tracks usage statistics
-- **Cobra CLI**: Professional command-line interface with Viper configuration
-- **Docker Support**: Production-ready Docker and docker-compose deployment
-- **Single Binary**: Fully self-contained executable with embedded UI and menu generation
-- **Filesystem Fallback**: Can run without database for simple deployments
+### Core Functionality
+- **TFTP Server**: Traditional PXE boot support (port 69)
+- **HTTP Server**: iPXE and HTTP boot (port 8080)
+- **Embedded iPXE Bootloaders**: No external files needed - bootloaders baked into the binary
+- **Dynamic Boot Menus**: Generated on-the-fly based on client MAC address permissions
+- **ISO Upload**: Web-based drag-and-drop upload (up to 10GB)
+- **Automatic Scanning**: Auto-detect ISOs in data directory
+
+### Database & Storage
+- **SQLite by Default**: Zero-configuration embedded database (just works)
+- **PostgreSQL Optional**: Scale to enterprise with PostgreSQL backend
+- **MAC Address Access Control**: Fine-grained per-client ISO permissions
+- **Boot Logging**: Track every boot attempt with statistics
+- **Filesystem Fallback**: Run without database for simple deployments
+
+### Admin Interface
+- **Web Admin Panel**: Full-featured UI on separate port (8081)
+- **HTTP Basic Auth**: Auto-generated password on first run
+- **RESTful API**: Complete REST API for automation
+- **Client Management**: Add/edit/delete clients, assign images
+- **Image Management**: Upload, scan, enable/disable ISOs
+- **Boot Logs**: Real-time boot attempt tracking
+
+### Deployment
+- **Single Binary**: Fully self-contained with embedded assets
+- **Docker Ready**: Multi-arch images (amd64/arm64) on Docker Hub
+- **Systemd Support**: Production systemd service files
+- **Zero Config**: Sensible defaults, works out of the box
+
+## Quick Start
+
+### Docker (Recommended)
+
+```bash
+# Create data directory for ISOs
+mkdir -p data
+
+# Run with SQLite (no database container needed!)
+docker run -d \
+  --name bootimus \
+  --cap-add NET_BIND_SERVICE \
+  -p 69:69/udp \
+  -p 8080:8080/tcp \
+  -p 8081:8081/tcp \
+  -v $(pwd)/data:/app/data \
+  youruser/bootimus:latest
+
+# Check logs for admin password
+docker logs bootimus | grep "Admin password"
+
+# Access admin interface
+open http://localhost:8081
+```
+
+### Standalone Binary
+
+```bash
+# Download binary (or build from source)
+wget https://github.com/youruser/bootimus/releases/latest/download/bootimus-amd64
+chmod +x bootimus-amd64
+
+# Create data directory
+mkdir -p data
+
+# Run (SQLite mode - no database required!)
+./bootimus-amd64 serve
+
+# Admin panel: http://localhost:8081
+# Admin password shown in startup logs
+```
+
+### Docker Compose with PostgreSQL
+
+```bash
+# Clone repo
+git clone https://github.com/youruser/bootimus
+cd bootimus
+
+# Start with PostgreSQL
+docker-compose up -d
+
+# View logs
+docker-compose logs -f bootimus
+```
+
+## Configuration
+
+Bootimus uses sensible defaults and requires minimal configuration.
+
+### Configuration Precedence
+1. Command-line flags
+2. Environment variables (prefixed with `BOOTIMUS_`)
+3. Configuration file (`bootimus.yaml`)
+
+### Example Configuration File
+
+```yaml
+# bootimus.yaml
+tftp_port: 69
+http_port: 8080
+admin_port: 8081
+data_dir: ./data          # ISO storage directory
+boot_dir: ""              # Optional (bootloaders are embedded)
+server_addr: ""           # Auto-detected if not specified
+
+# SQLite mode (default - no configuration needed!)
+db:
+  disable: false          # false = use SQLite, true = no database
+
+# PostgreSQL mode (optional)
+# db:
+#   host: localhost
+#   port: 5432
+#   user: bootimus
+#   password: bootimus
+#   name: bootimus
+#   sslmode: disable
+#   disable: false
+```
+
+### Environment Variables
+
+```bash
+# Server settings
+export BOOTIMUS_TFTP_PORT=69
+export BOOTIMUS_HTTP_PORT=8080
+export BOOTIMUS_ADMIN_PORT=8081
+export BOOTIMUS_DATA_DIR=/var/lib/bootimus/data
+
+# Database settings
+export BOOTIMUS_DB_DISABLE=false        # Use SQLite
+# export BOOTIMUS_DB_HOST=postgres      # Use PostgreSQL
+# export BOOTIMUS_DB_PASSWORD=secret
+
+./bootimus serve
+```
+
+## Database Modes
+
+### SQLite Mode (Default)
+
+SQLite is **enabled by default** - no configuration required!
+
+```bash
+# Run with SQLite (default)
+./bootimus serve
+
+# Database automatically created at: <data_dir>/bootimus.db
+# Perfect for: Single-server deployments, testing, small networks
+```
+
+### PostgreSQL Mode
+
+For enterprise deployments with high concurrency:
+
+```yaml
+# bootimus.yaml
+db:
+  host: postgres.example.com
+  port: 5432
+  user: bootimus
+  password: secretpassword
+  name: bootimus
+  sslmode: require
+  disable: false
+```
+
+### No Database Mode
+
+Filesystem-only mode (all ISOs public to all clients):
+
+```bash
+./bootimus serve --db-disable
+```
 
 ## Architecture
 
@@ -25,93 +193,19 @@ A production-ready PXE and HTTP boot server written in Go with PostgreSQL-backed
 bootimus/
 ├── cmd/                    # Cobra CLI commands
 │   ├── root.go            # Root command and configuration
-│   ├── serve.go           # Server start command
-│   └── migrate.go         # Database migration command
+│   └── serve.go           # Server start command
 ├── internal/
 │   ├── models/            # Database models (GORM)
-│   │   └── models.go
-│   ├── database/          # Database layer
-│   │   └── database.go
-│   └── server/            # Server implementation
-│       └── server.go
+│   ├── database/          # PostgreSQL database layer
+│   ├── storage/           # SQLite storage layer
+│   ├── server/            # TFTP/HTTP server
+│   ├── admin/             # Admin API handlers
+│   ├── auth/              # HTTP Basic Auth
+│   └── bootloaders/       # Embedded iPXE bootloaders
+├── web/static/            # Embedded web UI
 ├── main.go                # Entry point
 ├── Dockerfile             # Docker build
-├── docker-compose.yml     # Docker Compose config
-└── bootimus.example.yaml  # Example configuration
-```
-
-## Quick Start
-
-### Using Docker Compose (Recommended)
-
-```bash
-# Start the server with PostgreSQL
-docker-compose up -d
-
-# View logs
-docker-compose logs -f bootimus
-
-# Stop
-docker-compose down
-```
-
-### Standalone Binary
-
-```bash
-# Build
-go build -o bootimus
-
-# Run with database
-./bootimus serve
-
-# Run without database (filesystem-only mode)
-./bootimus serve --db-disable
-```
-
-## Configuration
-
-Bootimus can be configured via:
-1. Command-line flags
-2. Environment variables (prefixed with `BOOTIMUS_`)
-3. Configuration file (`bootimus.yaml`)
-
-### Configuration File
-
-```bash
-# Copy example config
-cp bootimus.example.yaml bootimus.yaml
-
-# Edit configuration
-nano bootimus.yaml
-```
-
-Example `bootimus.yaml`:
-
-```yaml
-tftp_port: 69
-http_port: 8080
-boot_dir: ./boot
-data_dir: ./data
-server_addr: ""  # Auto-detected
-
-db:
-  host: localhost
-  port: 5432
-  user: bootimus
-  password: bootimus
-  name: bootimus
-  sslmode: disable
-  disable: false
-```
-
-### Environment Variables
-
-```bash
-export BOOTIMUS_TFTP_PORT=69
-export BOOTIMUS_HTTP_PORT=8080
-export BOOTIMUS_DB_HOST=localhost
-export BOOTIMUS_DB_PASSWORD=secretpassword
-./bootimus serve
+└── docker-compose.yml     # Docker Compose config
 ```
 
 ## Database Schema
@@ -120,147 +214,70 @@ export BOOTIMUS_DB_PASSWORD=secretpassword
 
 **clients** - Network boot clients
 - `id` - Primary key
-- `mac_address` - Unique MAC address
+- `mac_address` - Unique MAC address (normalized)
 - `name` - Client name/description
+- `description` - Additional details
 - `enabled` - Whether client can boot
 - `last_boot` - Last boot timestamp
 - `boot_count` - Number of boots
+- `allowed_images` - JSON array of allowed image filenames (SQLite)
 
 **images** - ISO images
 - `id` - Primary key
 - `name` - Display name
-- `filename` - ISO filename
+- `filename` - ISO filename (unique)
+- `description` - Image description
+- `size` - File size in bytes
 - `enabled` - Whether image is available
 - `public` - If true, available to all clients
 - `boot_count` - Usage statistics
+- `last_booted` - Last boot timestamp
 
-**client_images** - Many-to-many relationship
+**client_images** - Many-to-many relationship (PostgreSQL only)
 - Links clients to their allowed images
 
 **boot_logs** - Boot attempt logs
-- Tracks every boot attempt with client, image, success/failure
-
-### Running Migrations
-
-```bash
-./bootimus migrate
-```
-
-## Commands
-
-### serve
-
-Start the PXE/HTTP boot server:
-
-```bash
-./bootimus serve [flags]
-
-Flags:
-  --tftp-port int        TFTP server port (default 69)
-  --http-port int        HTTP server port (default 8080)
-  --boot-dir string      Directory containing boot files (default "./boot")
-  --data-dir string      Directory containing ISO images (default "./data")
-  --server-addr string   Server IP address (auto-detected if not specified)
-  --db-host string       PostgreSQL host (default "localhost")
-  --db-port int          PostgreSQL port (default 5432)
-  --db-user string       PostgreSQL user (default "bootimus")
-  --db-password string   PostgreSQL password
-  --db-name string       PostgreSQL database name (default "bootimus")
-  --db-disable           Disable database (filesystem-only mode)
-```
-
-### migrate
-
-Run database migrations:
-
-```bash
-./bootimus migrate
-```
-
-## Directory Structure
-
-### Boot Directory (default: `./boot`)
-
-Place iPXE bootloaders here:
-
-```
-boot/
-├── ipxe.efi           # iPXE UEFI bootloader
-└── undionly.kpxe      # iPXE for legacy BIOS PXE
-```
-
-Download iPXE bootloaders:
-
-```bash
-mkdir -p boot
-wget http://boot.ipxe.org/ipxe.efi -O boot/ipxe.efi
-wget http://boot.ipxe.org/undionly.kpxe -O boot/undionly.kpxe
-```
-
-### Data Directory (default: `./data`)
-
-Place ISO images here:
-
-```
-data/
-├── ubuntu-24.04-live-server-amd64.iso
-├── debian-12.0.0-amd64-netinst.iso
-└── your-custom-installer.iso
-```
-
-The server will:
-1. Automatically scan for `.iso` files
-2. Sync them with the database
-3. Generate dynamic menus based on MAC address permissions
-
-## MAC Address Access Control
-
-### Database Mode (Default)
-
-When database is enabled, Bootimus provides fine-grained access control:
-
-#### Public Images
-
-```sql
--- Make an image available to all clients
-UPDATE images SET public = true WHERE name = 'ubuntu-24.04-live-server-amd64';
-```
-
-#### Client-Specific Access
-
-```sql
--- Add a client
-INSERT INTO clients (mac_address, name, enabled)
-VALUES ('00:11:22:33:44:55', 'Lab Machine 1', true);
-
--- Grant access to specific images
-INSERT INTO client_images (client_id, image_id)
-SELECT
-  (SELECT id FROM clients WHERE mac_address = '00:11:22:33:44:55'),
-  id
-FROM images WHERE name IN ('debian-12.0.0-amd64-netinst', 'custom-tool');
-```
-
-### Filesystem Mode
-
-When database is disabled (`--db-disable`), all ISOs are available to all clients.
+- `mac_address` - Client MAC
+- `image_name` - Image requested
+- `success` - Boot success/failure
+- `error_msg` - Error details (if failed)
+- `ip_address` - Client IP
+- `created_at` - Timestamp
 
 ## How It Works
 
-1. **Startup**: Bootimus scans the data directory for `.iso` files and syncs with database
-2. **PXE Boot**:
+### Boot Flow
+
+1. **Client PXE Boot**:
    - Client sends DHCP request
-   - DHCP server responds with boot server address and iPXE bootloader filename
-   - Client downloads iPXE bootloader via TFTP
-   - iPXE requests `/menu.ipxe?mac=<MAC>` via HTTP
-3. **Menu Generation**:
-   - Bootimus queries database for images accessible to the MAC address
-   - Generates iPXE menu on-the-fly (no external files)
-   - Menu includes only allowed images
-4. **Boot**:
-   - User selects an ISO from the ASCII menu
-   - iPXE boots the ISO via HTTP using `sanboot`
-   - Bootimus logs the boot attempt and updates statistics
+   - DHCP server responds with boot server IP and bootloader filename
+   - Client downloads iPXE bootloader via TFTP from Bootimus
+
+2. **iPXE Chainloading**:
+   - iPXE bootloader starts
+   - Requests dynamic menu: `GET /menu.ipxe?mac=<MAC>`
+   - Bootimus generates menu based on MAC address permissions
+
+3. **Menu Display**:
+   - iPXE displays ASCII menu with available ISOs
+   - User selects an ISO
+   - iPXE boots ISO via HTTP using `sanboot`
+
+4. **Logging**:
+   - Bootimus logs boot attempt (client, image, success/failure)
+   - Updates statistics (boot counts, last boot time)
+
+### Access Control
+
+**SQLite/PostgreSQL Mode**:
+- Public images: Available to all clients
+- Private images: Assigned per MAC address
+- Disabled clients: Cannot boot any images
+- Boot attempts logged with success/failure
+
+**No Database Mode**:
+- All ISOs available to all clients
+- No logging or statistics
 
 ## DHCP Configuration
 
@@ -269,13 +286,18 @@ When database is disabled (`--db-disable`), all ISOs are available to all client
 ```
 subnet 192.168.1.0 netmask 255.255.255.0 {
     range 192.168.1.100 192.168.1.200;
-    next-server 192.168.1.10;  # IP of bootimus server
+    next-server 192.168.1.10;  # Bootimus server IP
 
+    # Chain to HTTP after iPXE loads
     if exists user-class and option user-class = "iPXE" {
         filename "http://192.168.1.10:8080/menu.ipxe?mac=${net0/mac}";
-    } elsif option arch = 00:07 or option arch = 00:09 {
+    }
+    # UEFI systems
+    elsif option arch = 00:07 or option arch = 00:09 {
         filename "ipxe.efi";
-    } else {
+    }
+    # Legacy BIOS
+    else {
         filename "undionly.kpxe";
     }
 }
@@ -288,163 +310,154 @@ dhcp-range=192.168.1.100,192.168.1.200,12h
 dhcp-boot=tag:!ipxe,undionly.kpxe,192.168.1.10
 dhcp-boot=tag:ipxe,http://192.168.1.10:8080/menu.ipxe
 
+# UEFI support
 dhcp-match=set:efi-x86_64,option:client-arch,7
 dhcp-boot=tag:efi-x86_64,tag:!ipxe,ipxe.efi,192.168.1.10
 ```
 
 ## Admin Interface
 
-Bootimus includes a full-featured web-based admin panel for managing clients, images, and viewing boot logs.
+Access the web admin panel at: `http://your-server:8081/`
 
-### Accessing the Admin Panel
+### First-Time Login
 
-The admin interface runs on a separate port from the boot server for security:
+On first run, Bootimus generates a random admin password:
 
 ```
-http://your-server:8081/
+Admin password: a3f9c8e2d1b0
 ```
 
-**Security Features**:
-- Runs on separate port (8081) - isolate from boot network
-- HTTP Basic Authentication enabled by default
-- Auto-generated password displayed in server logs on first run
-- Password stored as SHA-256 hash in `.admin_password` file
-- Works with or without database (`--db-disable` mode supported)
+- **Username**: `admin`
+- **Password**: Check server logs or `.admin_password` file
+- Password stored as SHA-256 hash for security
 
-### Admin Features
+### Dashboard Features
 
-#### Dashboard
-- Real-time statistics (total clients, active clients, images, boot counts)
-- Quick overview of system status
+- **System Statistics**: Total clients, active clients, images, boot counts
+- **Client Management**: Add/edit/delete clients, assign images
+- **Image Management**: Upload ISOs, scan directory, enable/disable
+- **Boot Logs**: View recent boot attempts with success/failure status
 
-#### Client Management
-- **Add clients**: Register new MAC addresses
-- **Edit clients**: Update client information and enable/disable
-- **Assign images**: Control which ISOs each client can access
-- **View statistics**: See boot counts and last boot time per client
-- **Delete clients**: Remove clients from the system
+### Admin API
 
-#### Image Management
-- **Upload ISOs**: Drag-and-drop ISO file upload (up to 10GB)
-- **Scan for ISOs**: Automatically detect new ISOs in the data directory
-- **Enable/Disable images**: Control image availability
-- **Public/Private**: Make images available to all clients or specific ones
-- **View statistics**: Track image usage and boot counts
-- **Delete images**: Remove images from database (optionally delete file)
-
-#### Boot Logs
-- View recent boot attempts (50 most recent by default)
-- See MAC address, image name, success/failure status
-- Track IP addresses and error messages
-- Real-time log updates
-
-### Screenshots
-
-The admin interface features:
-- Dark theme optimised for terminal users
-- Responsive design for desktop and mobile
-- Real-time statistics dashboard
-- Easy drag-and-drop ISO uploads
-- Filterable and sortable tables
-
-## API Endpoints
-
-### Boot Endpoints (Public)
-
-- `GET /menu.ipxe?mac=<MAC>` - Dynamic iPXE menu for MAC address
-- `GET /isos/<filename>?mac=<MAC>` - Serve ISO image
-- `GET /api/isos?mac=<MAC>` - List available ISOs for MAC address
-- `GET /health` - Health check endpoint
-- `GET /<file>` - Serve boot files (iPXE bootloaders, etc.)
-
-### Admin API Endpoints
-
-All admin API endpoints require HTTP Basic Authentication (username: `admin`, password: auto-generated on first run).
+All admin endpoints require HTTP Basic Auth (`admin:<password>`).
 
 **Stats**
-- `GET /api/stats` - Get system statistics
+- `GET /api/stats` - System statistics
 
 **Clients**
 - `GET /api/clients` - List all clients
-- `GET /api/clients?id=<ID>` - Get single client
-- `POST /api/clients` - Create new client
-- `PUT /api/clients?id=<ID>` - Update client
-- `DELETE /api/clients?id=<ID>` - Delete client
+- `GET /api/clients?mac=<MAC>` - Get client by MAC
+- `POST /api/clients` - Create client
+- `PUT /api/clients?mac=<MAC>` - Update client
+- `DELETE /api/clients?mac=<MAC>` - Delete client
 - `POST /api/clients/assign` - Assign images to client
 
 **Images**
 - `GET /api/images` - List all images
-- `GET /api/images?id=<ID>` - Get single image
-- `PUT /api/images?id=<ID>` - Update image
-- `DELETE /api/images?id=<ID>` - Delete image
-- `POST /api/images/upload` - Upload new ISO (multipart/form-data)
+- `GET /api/images?filename=<name>` - Get image
+- `PUT /api/images?filename=<name>` - Update image
+- `DELETE /api/images?filename=<name>` - Delete image
+- `POST /api/images/upload` - Upload ISO (multipart/form-data)
 - `POST /api/scan` - Scan data directory for new ISOs
 
 **Logs**
-- `GET /api/logs?limit=<N>` - Get boot logs (default 100, max 1000)
+- `GET /api/logs?limit=<N>` - Get boot logs (default 100)
 
-#### API Examples
+### API Examples
 
 ```bash
-# Note: All admin API calls require HTTP Basic Auth
-# Username: admin
-# Password: (shown in server logs on first run, stored in .admin_password file)
+# Get admin password from logs
+docker logs bootimus | grep "Admin password"
+
+# Set password variable
+ADMIN_PASS="a3f9c8e2d1b0"
 
 # Get system stats
-curl -u admin:your-password http://localhost:8081/api/stats
+curl -u admin:$ADMIN_PASS http://localhost:8081/api/stats
 
-# List all clients
-curl -u admin:your-password http://localhost:8081/api/clients
-
-# Create a new client
-curl -u admin:your-password -X POST http://localhost:8081/api/clients \
+# Create a client
+curl -u admin:$ADMIN_PASS -X POST http://localhost:8081/api/clients \
   -H "Content-Type: application/json" \
   -d '{
     "mac_address": "00:11:22:33:44:55",
     "name": "Lab Machine 1",
+    "description": "Test workstation",
     "enabled": true
   }'
 
-# Assign images to a client
-curl -u admin:your-password -X POST http://localhost:8081/api/clients/assign \
-  -H "Content-Type: application/json" \
-  -d '{
-    "client_id": 1,
-    "image_ids": [1, 2, 3]
-  }'
-
 # Upload an ISO
-curl -u admin:your-password -X POST http://localhost:8081/api/images/upload \
+curl -u admin:$ADMIN_PASS -X POST http://localhost:8081/api/images/upload \
   -F "file=@ubuntu-24.04-live-server-amd64.iso" \
   -F "description=Ubuntu 24.04 LTS Server" \
   -F "public=true"
 
-# Scan for new ISOs
-curl -u admin:your-password -X POST http://localhost:8081/api/scan
+# Assign images to client (SQLite mode)
+curl -u admin:$ADMIN_PASS -X POST http://localhost:8081/api/clients/assign \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mac_address": "00:11:22:33:44:55",
+    "image_filenames": ["ubuntu-24.04-live-server-amd64.iso", "debian-12.iso"]
+  }'
 
 # Get boot logs
-curl -u admin:your-password http://localhost:8081/api/logs?limit=10
+curl -u admin:$ADMIN_PASS http://localhost:8081/api/logs?limit=10
 ```
 
 ## Production Deployment
 
-### Docker
+### Docker with SQLite (Simplest)
 
 ```bash
-# Build
-docker build -t bootimus:latest .
-
-# Run
 docker run -d \
   --name bootimus \
+  --restart unless-stopped \
   --cap-add NET_BIND_SERVICE \
   -p 69:69/udp \
   -p 8080:8080/tcp \
-  -v $(pwd)/boot:/app/boot \
-  -v $(pwd)/data:/app/data \
-  -e BOOTIMUS_DB_HOST=postgres \
-  -e BOOTIMUS_DB_PASSWORD=secretpassword \
-  bootimus:latest
+  -p 8081:8081/tcp \
+  -v /opt/bootimus/data:/app/data \
+  youruser/bootimus:latest
+```
+
+### Docker Compose with PostgreSQL
+
+```yaml
+version: '3.8'
+
+services:
+  bootimus:
+    image: youruser/bootimus:latest
+    container_name: bootimus
+    restart: unless-stopped
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "69:69/udp"
+      - "8080:8080/tcp"
+      - "8081:8081/tcp"
+    volumes:
+      - ./data:/app/data
+      - ./bootimus.yaml:/app/bootimus.yaml
+    environment:
+      - BOOTIMUS_DB_HOST=postgres
+      - BOOTIMUS_DB_PASSWORD=secretpassword
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: bootimus-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=bootimus
+      - POSTGRES_PASSWORD=secretpassword
+      - POSTGRES_DB=bootimus
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
 ```
 
 ### Systemd Service
@@ -452,7 +465,7 @@ docker run -d \
 ```ini
 [Unit]
 Description=Bootimus PXE/HTTP Boot Server
-After=network.target postgresql.service
+After=network.target
 
 [Service]
 Type=simple
@@ -460,19 +473,72 @@ User=root
 WorkingDirectory=/opt/bootimus
 ExecStart=/opt/bootimus/bootimus serve
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-## Security Considerations
+```bash
+# Install
+sudo cp bootimus.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable bootimus
+sudo systemctl start bootimus
 
-- **Read-only TFTP**: TFTP server is read-only (no write operations)
-- **Path Sanitisation**: All file paths are sanitised to prevent directory traversal
-- **MAC Address Verification**: ISOs are served only to authorised MAC addresses (when database is enabled)
-- **Database Security**: Use strong passwords and SSL for production PostgreSQL
-- **Firewall**: Limit access to ports 69/UDP and 8080/TCP to your local network
-- **Audit Logs**: All boot attempts are logged in the `boot_logs` table
+# Check status
+sudo systemctl status bootimus
+
+# View logs
+sudo journalctl -u bootimus -f
+```
+
+## Building from Source
+
+### Local Build
+
+```bash
+# Clone repository
+git clone https://github.com/youruser/bootimus
+cd bootimus
+
+# Install dependencies
+go mod download
+
+# Build
+make build DOCKER_USER=youruser
+
+# Run
+./bootimus serve
+```
+
+### Multi-Architecture Build
+
+```bash
+# Build for AMD64
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bootimus-amd64
+
+# Build for ARM64
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bootimus-arm64
+
+# Build Docker images
+make build DOCKER_USER=youruser
+make docker DOCKER_USER=youruser
+```
+
+### GitHub Actions
+
+The included GitHub Actions workflow automatically:
+- Builds AMD64 and ARM64 binaries
+- Creates multi-arch Docker images
+- Pushes to Docker Hub
+- Creates GitHub releases
+
+Trigger on git tags:
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 ## Troubleshooting
 
@@ -482,23 +548,23 @@ WantedBy=multi-user.target
 # Run as root
 sudo ./bootimus serve
 
-# Or use a non-privileged port
-./bootimus serve --tftp-port 6969
-
 # Or use Docker with CAP_NET_BIND_SERVICE
 docker run --cap-add NET_BIND_SERVICE ...
+
+# Or use non-privileged port
+./bootimus serve --tftp-port 6969
 ```
 
 ### Database Connection Failed
 
 ```bash
-# Test connection
+# Check SQLite database
+ls -la data/bootimus.db
+
+# For PostgreSQL, test connection
 psql -h localhost -U bootimus -d bootimus
 
-# Run migrations
-./bootimus migrate
-
-# Use filesystem-only mode
+# Run in no-database mode
 ./bootimus serve --db-disable
 ```
 
@@ -506,36 +572,75 @@ psql -h localhost -U bootimus -d bootimus
 
 ```bash
 # Check data directory
-ls -la data/
+ls -la data/*.iso
 
-# Check database sync (if using database)
-psql -h localhost -U bootimus -d bootimus -c "SELECT * FROM images;"
+# Scan for ISOs via API
+curl -u admin:password -X POST http://localhost:8081/api/scan
 
-# Check client permissions
-psql -h localhost -U bootimus -d bootimus -c "
-  SELECT c.mac_address, i.name
-  FROM clients c
-  JOIN client_images ci ON c.id = ci.client_id
-  JOIN images i ON ci.image_id = i.id;
-"
+# Check client permissions (SQLite)
+sqlite3 data/bootimus.db "SELECT * FROM clients;"
+sqlite3 data/bootimus.db "SELECT * FROM images;"
+
+# Enable public access to images
+curl -u admin:password -X PUT http://localhost:8081/api/images?filename=ubuntu.iso \
+  -H "Content-Type: application/json" \
+  -d '{"public": true, "enabled": true}'
 ```
 
-## Development
+### Check Boot Logs
 
 ```bash
-# Install dependencies
-go mod download
+# Via API
+curl -u admin:password http://localhost:8081/api/logs?limit=10
 
-# Run locally
-go run main.go serve --db-disable
+# Via SQLite
+sqlite3 data/bootimus.db "SELECT * FROM boot_logs ORDER BY created_at DESC LIMIT 10;"
 
-# Build
-go build -o bootimus
-
-# Run tests (TODO)
-go test ./...
+# Via PostgreSQL
+psql -h localhost -U bootimus -d bootimus -c "SELECT * FROM boot_logs ORDER BY created_at DESC LIMIT 10;"
 ```
+
+## Comparison: Bootimus vs iVentoy
+
+| Feature | Bootimus | iVentoy |
+|---------|----------|---------|
+| **Language** | Go | C |
+| **Single Binary** | ✅ Yes | ❌ No |
+| **Embedded Bootloaders** | ✅ Yes | ❌ No |
+| **Database** | SQLite + PostgreSQL | File-based |
+| **Web UI** | ✅ Modern REST API | Basic HTML |
+| **Authentication** | HTTP Basic Auth | None |
+| **Boot Logging** | ✅ Full tracking | Limited |
+| **MAC-based ACL** | ✅ Granular | ❌ No |
+| **ISO Upload** | ✅ Web upload | Manual copy |
+| **Docker Support** | ✅ Multi-arch | Limited |
+| **API-First** | ✅ RESTful API | ❌ No |
+| **Multi-tenancy** | ✅ Client isolation | ❌ No |
+| **License** | Apache 2.0 | GPL |
+
+## Security Considerations
+
+- **Read-only TFTP**: TFTP server is read-only (no write operations)
+- **Path Sanitization**: All file paths sanitized to prevent directory traversal
+- **MAC Address Verification**: ISOs served only to authorized clients
+- **Admin Authentication**: HTTP Basic Auth with SHA-256 password hashing
+- **Separate Admin Port**: Admin interface isolated from boot network (port 8081)
+- **Database Security**: SQLite file permissions, PostgreSQL SSL support
+- **Audit Logs**: All boot attempts logged with client/image/success tracking
+- **Firewall**: Limit TFTP/HTTP ports to local network only
 
 ## License
 
-MIT License - feel free to use and modify as needed.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+
+Copyright 2025 Bootimus Contributors
+
+## Contributing
+
+Contributions welcome! Please open an issue or pull request.
+
+## Links
+
+- **GitHub**: https://github.com/youruser/bootimus
+- **Docker Hub**: https://hub.docker.com/r/youruser/bootimus
+- **Documentation**: https://github.com/youruser/bootimus/wiki

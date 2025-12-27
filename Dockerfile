@@ -1,5 +1,7 @@
 # Debian 13 (Trixie) distroless for minimal attack surface
-FROM gcr.io/distroless/static-debian13:nonroot
+# Note: Using 'static' instead of 'static-debian13:nonroot' so we can run as root
+# Port 69 (TFTP) requires privileged port binding
+FROM gcr.io/distroless/static-debian13
 
 WORKDIR /app
 
@@ -7,11 +9,10 @@ WORKDIR /app
 COPY bootimus /app/bootimus
 
 # Expose ports
-# Note: port 69 requires root/CAP_NET_BIND_SERVICE
 EXPOSE 69/udp 8080/tcp 8081/tcp
 
-# Switch to root to allow binding to port 69
-# In production, use CAP_NET_BIND_SERVICE capability instead
+# Run as root (required for port 69)
+# Alternative: Run with --cap-add NET_BIND_SERVICE and use non-root user
 USER root
 
 ENTRYPOINT ["/app/bootimus"]
