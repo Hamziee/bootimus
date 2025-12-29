@@ -7,6 +7,7 @@ let images = [];
 let currentClient = null;
 let imageSortColumn = 'name';
 let imageSortDirection = 'asc';
+let extractionProgress = {}; // Track extraction progress by filename
 
 // Utility Functions
 function escapeHtml(text) {
@@ -411,12 +412,17 @@ function renderClientsTable() {
                                 ${client.enabled ? 'Enabled' : 'Disabled'}
                             </span>
                         </td>
-                        <td>${(client.images || []).length} images</td>
+                        <td>
+                            ${(client.images || []).length > 0 ?
+                                `<span title="${(client.images || []).map(i => i.name).join(', ')}">${(client.images || []).length} images</span>` :
+                                '<span style="color: #94a3b8;">No images</span>'
+                            }
+                        </td>
                         <td>${client.boot_count || 0}</td>
                         <td>${client.last_boot ? new Date(client.last_boot).toLocaleString() : 'Never'}</td>
                         <td>
-                            <button class="btn btn-primary btn-sm" onclick="editClient(${client.id})">Edit</button>
-                            <button class="btn btn-danger btn-sm" onclick="deleteClient(${client.id}, '${client.mac_address}')">Delete</button>
+                            <button class="btn btn-primary btn-sm" onclick="editClient('${escapeHtml(client.mac_address)}')">Edit & Assign Images</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteClient('${escapeHtml(client.mac_address)}')">Delete</button>
                         </td>
                     </tr>
                 `).join('')}
@@ -432,15 +438,14 @@ function showAddClientModal() {
     showModal('add-client-modal');
 }
 
-async function editClient(id) {
+async function editClient(mac) {
     try {
-        const res = await fetch(`${API_BASE}/clients?id=${id}`);
+        const res = await fetch(`${API_BASE}/clients?mac=${encodeURIComponent(mac)}`);
         const data = await res.json();
 
         if (data.success) {
             currentClient = data.data;
             const form = document.getElementById('edit-client-form');
-            form.id.value = currentClient.id;
             form.mac_address.value = currentClient.mac_address;
             form.name.value = currentClient.name || '';
             form.description.value = currentClient.description || '';
@@ -449,23 +454,25 @@ async function editClient(id) {
             // Populate images select
             const select = document.getElementById('edit-images-select');
             select.innerHTML = images.map(img => `
-                <option value="${img.id}" ${(currentClient.images || []).some(i => i.id === img.id) ? 'selected' : ''}>
+                <option value="${img.filename}" ${(currentClient.images || []).some(i => i.filename === img.filename) ? 'selected' : ''}>
                     ${img.name}
                 </option>
             `).join('');
 
             showModal('edit-client-modal');
+        } else {
+            showAlert(data.error || 'Failed to load client', 'error');
         }
     } catch (err) {
-        alert('Failed to load client');
+        showAlert('Failed to load client', 'error');
     }
 }
 
-async function deleteClient(id, mac) {
+async function deleteClient(mac) {
     if (!confirm(`Delete client ${mac}?`)) return;
 
     try {
-        const res = await fetch(`${API_BASE}/clients?id=${id}`, { method: 'DELETE' });
+        const res = await fetch(`${API_BASE}/clients?mac=${encodeURIComponent(mac)}`, { method: 'DELETE' });
         const data = await res.json();
 
         if (data.success) {
@@ -581,6 +588,7 @@ function renderImagesTable() {
                     <th onclick="sortImages('boot_method')" style="cursor: pointer;">Boot Method ${sortIcon('boot_method')}</th>
                     <th onclick="sortImages('distro')" style="cursor: pointer;">Distro ${sortIcon('distro')}</th>
                     <th onclick="sortImages('boot_count')" style="cursor: pointer;">Boot Count ${sortIcon('boot_count')}</th>
+                    <th>Operations</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -629,9 +637,23 @@ function renderImagesTable() {
                             }
                         </td>
                         <td>${img.boot_count || 0}</td>
+                        <td class="operations-cell">
+                            ${extractionProgress[img.filename] ? `
+                                <div class="progress-container">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: ${extractionProgress[img.filename].progress}%"></div>
+                                    </div>
+                                    <div class="progress-text">${extractionProgress[img.filename].status}</div>
+                                </div>
+                            ` : (img.extracted ? '<span style="color: #4caf50;">✓ Ready</span>' : '<span style="color: #999;">Not extracted</span>')}
+                        </td>
                         <td>
-                            ${!img.extracted ?
+                            ${!img.extracted && !extractionProgress[img.filename] ?
                                 '<button class="btn btn-success btn-sm" onclick="extractImage(\''+img.filename+'\', \''+img.name+'\')">Extract Kernel</button>' :
+                                ''
+                            }
+                            ${extractionProgress[img.filename] ?
+                                '<button class="btn btn-sm" disabled style="opacity: 0.5;">Extracting...</button>' :
                                 ''
                             }
                             <button class="btn btn-primary btn-sm" onclick="toggleImage('${img.filename}', ${img.enabled})">
@@ -729,17 +751,46 @@ async function extractImage(filename, name) {
     if (!confirm(`Extract kernel and initrd from ${name}?\n\nThis will mount the ISO and extract boot files for direct kernel booting.`)) return;
 
     try {
-        showAlert('Extracting... this may take a moment', 'info');
+        // Set initial progress
+        extractionProgress[filename] = { progress: 0, status: 'Starting extraction...' };
+        renderImagesTable();
+
+        // Simulate progress updates (since we don't have real progress from backend)
+        const progressInterval = setInterval(() => {
+            if (extractionProgress[filename] && extractionProgress[filename].progress < 90) {
+                extractionProgress[filename].progress += 10;
+                if (extractionProgress[filename].progress < 30) {
+                    extractionProgress[filename].status = 'Mounting ISO...';
+                } else if (extractionProgress[filename].progress < 60) {
+                    extractionProgress[filename].status = 'Detecting distribution...';
+                } else {
+                    extractionProgress[filename].status = 'Extracting boot files...';
+                }
+                renderImagesTable();
+            }
+        }, 500);
+
         const res = await fetch(`${API_BASE}/images/extract?filename=${encodeURIComponent(filename)}`, { method: 'POST' });
         const data = await res.json();
 
+        clearInterval(progressInterval);
+
         if (data.success) {
-            showAlert(data.message || 'Extraction successful', 'success');
-            loadImages();
+            extractionProgress[filename] = { progress: 100, status: 'Complete!' };
+            renderImagesTable();
+            setTimeout(() => {
+                delete extractionProgress[filename];
+                loadImages();
+                showAlert(data.message || 'Extraction successful', 'success');
+            }, 1000);
         } else {
+            delete extractionProgress[filename];
+            renderImagesTable();
             showAlert(data.error || 'Extraction failed', 'error');
         }
     } catch (err) {
+        delete extractionProgress[filename];
+        renderImagesTable();
         showAlert('Failed to extract image', 'error');
     }
 }
@@ -861,7 +912,7 @@ function setupForms() {
     document.getElementById('edit-client-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(e.target);
-        const id = formData.get('id');
+        const mac = formData.get('mac_address');
 
         const updates = {
             name: formData.get('name'),
@@ -871,22 +922,22 @@ function setupForms() {
 
         try {
             // Update client
-            const res1 = await fetch(`${API_BASE}/clients?id=${id}`, {
+            const res1 = await fetch(`${API_BASE}/clients?mac=${encodeURIComponent(mac)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updates)
             });
 
             // Update image assignments
-            const selectedImages = Array.from(document.getElementById('edit-images-select').selectedOptions)
-                .map(opt => parseInt(opt.value));
+            const selectedFilenames = Array.from(document.getElementById('edit-images-select').selectedOptions)
+                .map(opt => opt.value);
 
             const res2 = await fetch(`${API_BASE}/clients/assign`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    client_id: parseInt(id),
-                    image_ids: selectedImages
+                    mac_address: mac,
+                    image_filenames: selectedFilenames
                 })
             });
 
@@ -898,7 +949,7 @@ function setupForms() {
                 closeModal('edit-client-modal');
                 loadClients();
             } else {
-                showAlert('Failed to update client', 'error');
+                showAlert(data1.error || data2.error || 'Failed to update client', 'error');
             }
         } catch (err) {
             showAlert('Failed to update client', 'error');
@@ -1045,13 +1096,36 @@ function closeModal(id) {
 }
 
 function showAlert(message, type) {
+    // Create notification container if it doesn't exist
+    let container = document.getElementById('notification-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'notification-container';
+        container.className = 'notification-container';
+        document.body.appendChild(container);
+    }
+
     const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type}`;
+    alertDiv.className = `notification notification-${type}`;
     alertDiv.textContent = message;
 
-    document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.stats'));
+    // Add to container
+    container.appendChild(alertDiv);
 
-    setTimeout(() => alertDiv.remove(), 5000);
+    // Trigger animation
+    setTimeout(() => alertDiv.classList.add('show'), 10);
+
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        alertDiv.classList.remove('show');
+        setTimeout(() => alertDiv.remove(), 300);
+    }, 5000);
+
+    // Click to dismiss
+    alertDiv.addEventListener('click', () => {
+        alertDiv.classList.remove('show');
+        setTimeout(() => alertDiv.remove(), 300);
+    });
 }
 
 function formatBytes(bytes) {

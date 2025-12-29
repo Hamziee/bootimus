@@ -583,6 +583,87 @@
             font-size: 13px;
             margin-top: 12px;
         }
+
+        /* Floating Notifications */
+        .notification-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 400px;
+        }
+
+        .notification {
+            padding: 16px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transform: translateX(450px);
+            transition: transform 0.3s ease, opacity 0.3s ease;
+            opacity: 0;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+            opacity: 1;
+        }
+
+        .notification-success {
+            background: #10b981;
+        }
+
+        .notification-error {
+            background: #ef4444;
+        }
+
+        .notification-info {
+            background: #38bdf8;
+        }
+
+        .notification-warning {
+            background: #f59e0b;
+        }
+
+        .notification:hover {
+            opacity: 0.9;
+        }
+
+        /* Progress Bar */
+        .operations-cell {
+            min-width: 200px;
+        }
+
+        .progress-container {
+            width: 100%;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #1e293b;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 4px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #38bdf8, #10b981);
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+
+        .progress-text {
+            font-size: 12px;
+            color: #94a3b8;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -738,7 +819,6 @@
                 <h2>Edit Client</h2>
             </div>
             <form id="edit-client-form">
-                <input type="hidden" name="id">
                 <div class="form-group">
                     <label>MAC Address</label>
                     <input type="text" name="mac_address" readonly>
