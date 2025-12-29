@@ -18,6 +18,8 @@ import (
 	"bootimus/internal/models"
 	"bootimus/internal/storage"
 	"bootimus/internal/sysstats"
+
+	"gorm.io/gorm"
 )
 
 type Handler struct {
@@ -150,6 +152,28 @@ func (h *Handler) CreateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if a soft-deleted client with this MAC exists
+	var existingClient models.Client
+	err := h.db.Unscoped().Where("mac_address = ?", client.MACAddress).First(&existingClient).Error
+
+	if err == nil && existingClient.DeletedAt.Valid {
+		// Undelete and update the existing client
+		existingClient.DeletedAt = gorm.DeletedAt{}
+		existingClient.Name = client.Name
+		existingClient.Description = client.Description
+		existingClient.Enabled = true
+
+		if err := h.db.Unscoped().Save(&existingClient).Error; err != nil {
+			h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+			return
+		}
+
+		log.Printf("Client restored (DB mode): %s (%s)", existingClient.MACAddress, existingClient.Name)
+		h.sendJSON(w, http.StatusCreated, Response{Success: true, Message: "Client restored", Data: existingClient})
+		return
+	}
+
+	// Create new client
 	if err := h.db.Create(&client).Error; err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
 		return

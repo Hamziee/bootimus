@@ -613,7 +613,7 @@ function renderImagesTable() {
                                 '<span class="badge badge-success">Kernel/Initrd</span>' :
                                 '<span class="badge badge-info">SAN Boot</span>'
                             }
-                            ${!img.sanboot_compatible && img.sanboot_hint ?
+                            ${!img.sanboot_compatible && img.sanboot_hint && img.boot_method === 'sanboot' && !img.extracted ?
                                 '<br><span style="color: #ff9800; font-size: 0.85em; margin-top: 4px; display: block;">⚠ '+img.sanboot_hint+'</span>' :
                                 ''
                             }

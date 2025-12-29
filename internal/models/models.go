@@ -71,7 +71,7 @@ type Client struct {
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
-	MACAddress    string         `gorm:"uniqueIndex;not null" json:"mac_address"`
+	MACAddress    string         `gorm:"uniqueIndex:idx_mac_not_deleted;not null" json:"mac_address"`
 	Name          string         `json:"name"`
 	Description   string         `json:"description"`
 	Enabled       bool           `gorm:"default:true" json:"enabled"`
