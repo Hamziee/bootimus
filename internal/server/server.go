@@ -986,7 +986,7 @@ echo Auto-install enabled for this image
 {{end}}
 {{if eq $img.Distro "windows"}}
 echo Loading Windows boot files via wimboot...
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/wimboot
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/wimboot
 initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/bcd BCD
 initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/boot.sdi boot.sdi
 initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/boot.wim boot.wim
