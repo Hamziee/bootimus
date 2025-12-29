@@ -5,6 +5,8 @@ const API_BASE = '/api';
 let clients = [];
 let images = [];
 let currentClient = null;
+let imageSortColumn = 'name';
+let imageSortDirection = 'asc';
 
 // Utility Functions
 function escapeHtml(text) {
@@ -493,6 +495,65 @@ async function loadImages() {
     }
 }
 
+function sortImages(column) {
+    if (imageSortColumn === column) {
+        imageSortDirection = imageSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        imageSortColumn = column;
+        imageSortDirection = 'asc';
+    }
+    renderImagesTable();
+}
+
+function getSortedImages() {
+    const sorted = [...images].sort((a, b) => {
+        let aVal, bVal;
+
+        switch (imageSortColumn) {
+            case 'name':
+                aVal = (a.name || '').toLowerCase();
+                bVal = (b.name || '').toLowerCase();
+                break;
+            case 'filename':
+                aVal = (a.filename || '').toLowerCase();
+                bVal = (b.filename || '').toLowerCase();
+                break;
+            case 'size':
+                aVal = a.size || 0;
+                bVal = b.size || 0;
+                break;
+            case 'status':
+                aVal = a.enabled ? 1 : 0;
+                bVal = b.enabled ? 1 : 0;
+                break;
+            case 'visibility':
+                aVal = a.public ? 1 : 0;
+                bVal = b.public ? 1 : 0;
+                break;
+            case 'boot_method':
+                aVal = a.boot_method || '';
+                bVal = b.boot_method || '';
+                break;
+            case 'distro':
+                aVal = (a.distro || '').toLowerCase();
+                bVal = (b.distro || '').toLowerCase();
+                break;
+            case 'boot_count':
+                aVal = a.boot_count || 0;
+                bVal = b.boot_count || 0;
+                break;
+            default:
+                return 0;
+        }
+
+        if (aVal < bVal) return imageSortDirection === 'asc' ? -1 : 1;
+        if (aVal > bVal) return imageSortDirection === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    return sorted;
+}
+
 function renderImagesTable() {
     const container = document.getElementById('images-table');
 
@@ -501,23 +562,30 @@ function renderImagesTable() {
         return;
     }
 
+    const sortIcon = (column) => {
+        if (imageSortColumn !== column) return '↕';
+        return imageSortDirection === 'asc' ? '↑' : '↓';
+    };
+
+    const sortedImages = getSortedImages();
+
     const html = `
         <table>
             <thead>
                 <tr>
-                    <th>Name</th>
-                    <th>Filename</th>
-                    <th>Size</th>
-                    <th>Status</th>
-                    <th>Visibility</th>
-                    <th>Boot Method</th>
-                    <th>Distro</th>
-                    <th>Boot Count</th>
+                    <th onclick="sortImages('name')" style="cursor: pointer;">Name ${sortIcon('name')}</th>
+                    <th onclick="sortImages('filename')" style="cursor: pointer;">Filename ${sortIcon('filename')}</th>
+                    <th onclick="sortImages('size')" style="cursor: pointer;">Size ${sortIcon('size')}</th>
+                    <th onclick="sortImages('status')" style="cursor: pointer;">Status ${sortIcon('status')}</th>
+                    <th onclick="sortImages('visibility')" style="cursor: pointer;">Visibility ${sortIcon('visibility')}</th>
+                    <th onclick="sortImages('boot_method')" style="cursor: pointer;">Boot Method ${sortIcon('boot_method')}</th>
+                    <th onclick="sortImages('distro')" style="cursor: pointer;">Distro ${sortIcon('distro')}</th>
+                    <th onclick="sortImages('boot_count')" style="cursor: pointer;">Boot Count ${sortIcon('boot_count')}</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
-                ${images.map(img => `
+                ${sortedImages.map(img => `
                     <tr>
                         <td>${img.name}</td>
                         <td><code>${img.filename}</code></td>
@@ -537,12 +605,20 @@ function renderImagesTable() {
                                 '<span class="badge badge-success">Kernel/Initrd</span>' :
                                 '<span class="badge badge-info">SAN Boot</span>'
                             }
+                            ${!img.sanboot_compatible && img.sanboot_hint ?
+                                '<br><span style="color: #ff9800; font-size: 0.85em; margin-top: 4px; display: block;">⚠ '+img.sanboot_hint+'</span>' :
+                                ''
+                            }
                             ${img.extracted && img.boot_method === 'sanboot' ?
                                 '<br><button class="btn btn-sm" style="margin-top: 4px;" onclick="setBootMethod(\''+img.filename+'\', \'kernel\')">Switch to Kernel</button>' :
                                 ''
                             }
-                            ${img.boot_method === 'kernel' ?
+                            ${img.boot_method === 'kernel' && img.sanboot_compatible ?
                                 '<br><button class="btn btn-sm" style="margin-top: 4px;" onclick="setBootMethod(\''+img.filename+'\', \'sanboot\')">Switch to SAN</button>' :
+                                ''
+                            }
+                            ${img.boot_method === 'kernel' && !img.sanboot_compatible ?
+                                '<br><button class="btn btn-sm" style="margin-top: 4px; opacity: 0.5;" disabled title="'+img.sanboot_hint+'">SAN Not Supported</button>' :
                                 ''
                             }
                         </td>

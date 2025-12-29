@@ -1,5 +1,26 @@
 # Bootimus - Modern PXE/HTTP Boot Server
 
+## ⚠️ There be dragons ! ⚠️ 
+
+This is a very much early stage - work in progress project and there may be bugs
+
+Please raise a issue for any unexpected behaviour you encounter. 
+
+## Tested Images 
+
+ - archlinux-2025.12.01-x86_64.iso [✅]
+ - Rocky-10.1-x86_64-minimal.iso [✅]
+ - ubuntu-24.04-live-server-amd64.iso [✅]
+
+
+## Roadmap
+
+- FreeBSD Support
+- NetBSD Support
+- OpenBSD Support
+- Windows Support
+
+
 **A production-ready, self-contained PXE and HTTP boot server** written in Go with embedded iPXE bootloaders, SQLite/PostgreSQL support, and a full-featured web admin interface. Deploy in seconds with a single binary or Docker container.
 
 **Why Bootimus over iVentoy?**

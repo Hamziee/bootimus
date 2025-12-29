@@ -97,14 +97,17 @@ type Image struct {
 	LastBooted  *time.Time     `json:"last_booted,omitempty"`
 	Clients     []Client       `gorm:"many2many:client_images;" json:"clients,omitempty"`
 	// Kernel/Initrd extraction fields
-	Extracted       bool       `gorm:"default:false" json:"extracted"`
-	Distro          string     `json:"distro,omitempty"`
-	BootMethod      string     `gorm:"default:sanboot" json:"boot_method"` // "sanboot" or "kernel"
-	KernelPath      string     `json:"kernel_path,omitempty"`
-	InitrdPath      string     `json:"initrd_path,omitempty"`
-	BootParams      string     `json:"boot_params,omitempty"`
-	ExtractionError string     `json:"extraction_error,omitempty"`
-	ExtractedAt     *time.Time `json:"extracted_at,omitempty"`
+	Extracted         bool       `gorm:"default:false" json:"extracted"`
+	Distro            string     `json:"distro,omitempty"`
+	BootMethod        string     `gorm:"default:sanboot" json:"boot_method"` // "sanboot" or "kernel"
+	KernelPath        string     `json:"kernel_path,omitempty"`
+	InitrdPath        string     `json:"initrd_path,omitempty"`
+	BootParams        string     `json:"boot_params,omitempty"`
+	SquashfsPath      string     `json:"squashfs_path,omitempty"` // Path to filesystem.squashfs within ISO
+	ExtractionError   string     `json:"extraction_error,omitempty"`
+	ExtractedAt       *time.Time `json:"extracted_at,omitempty"`
+	SanbootCompatible bool       `gorm:"default:true" json:"sanboot_compatible"` // Whether ISO supports sanboot
+	SanbootHint       string     `json:"sanboot_hint,omitempty"`                 // Hint message if sanboot incompatible
 	// Unattended installation fields
 	AutoInstallScript     string `gorm:"type:text" json:"auto_install_script,omitempty"`      // Script content (preseed, kickstart, autounattend.xml)
 	AutoInstallEnabled    bool   `gorm:"default:false" json:"auto_install_enabled"`           // Enable auto-install script injection

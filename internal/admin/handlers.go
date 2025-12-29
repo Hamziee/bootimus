@@ -832,6 +832,9 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to save extraction metadata: %v", err)
 	}
 
+	// Check sanboot compatibility and generate hints
+	sanbootCompatible, sanbootHint := checkSanbootCompatibility(bootFiles.Distro, image.Filename)
+
 	// Update database with extraction info
 	now := time.Now()
 	image.Extracted = true
@@ -840,8 +843,11 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 	image.KernelPath = bootFiles.Kernel
 	image.InitrdPath = bootFiles.Initrd
 	image.BootParams = bootFiles.BootParams + " "
+	image.SquashfsPath = bootFiles.SquashfsPath
 	image.ExtractionError = ""
 	image.ExtractedAt = &now
+	image.SanbootCompatible = sanbootCompatible
+	image.SanbootHint = sanbootHint
 
 	if h.db == nil {
 		// SQLite mode
@@ -865,6 +871,47 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 		Message: fmt.Sprintf("Successfully extracted %s boot files", bootFiles.Distro),
 		Data:    image,
 	})
+}
+
+// checkSanbootCompatibility determines if an ISO is compatible with sanboot and provides hints
+func checkSanbootCompatibility(distro, filename string) (bool, string) {
+	filenameLower := strings.ToLower(filename)
+
+	// Windows PE and diagnostic ISOs are sanboot compatible
+	if strings.Contains(filenameLower, "winpe") ||
+	   strings.Contains(filenameLower, "windows pe") ||
+	   strings.Contains(filenameLower, "memtest") ||
+	   strings.Contains(filenameLower, "gparted") && strings.Contains(filenameLower, "live") {
+		return true, ""
+	}
+
+	// Most Linux distributions are NOT sanboot compatible
+	incompatibleDistros := map[string]string{
+		"ubuntu":   "Ubuntu requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+		"debian":   "Debian requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+		"fedora":   "Fedora requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+		"centos":   "CentOS requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+		"arch":     "Arch Linux requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+		"opensuse": "openSUSE requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+		"mint":     "Linux Mint requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+		"manjaro":  "Manjaro requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+		"popos":    "Pop!_OS requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+		"kali":     "Kali Linux requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+		"rocky":    "Rocky Linux requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+		"alma":     "AlmaLinux requires kernel extraction. Use 'Extract Kernel/Initrd' for network boot support.",
+	}
+
+	if hint, found := incompatibleDistros[distro]; found {
+		return false, hint
+	}
+
+	// If distro detected but not in our list, assume incompatible for safety
+	if distro != "" {
+		return false, "This Linux distribution likely requires kernel extraction. Use 'Extract Kernel/Initrd' for reliable network boot support."
+	}
+
+	// Unknown ISO type - allow sanboot but warn
+	return true, ""
 }
 
 func (h *Handler) SetBootMethod(w http.ResponseWriter, r *http.Request) {
@@ -919,6 +966,15 @@ func (h *Handler) SetBootMethod(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusBadRequest, Response{
 			Success: false,
 			Error:   "Cannot use kernel boot method: image not extracted. Please extract first.",
+		})
+		return
+	}
+
+	// If switching to sanboot, check compatibility and warn user
+	if req.BootMethod == "sanboot" && !image.SanbootCompatible {
+		h.sendJSON(w, http.StatusBadRequest, Response{
+			Success: false,
+			Error:   fmt.Sprintf("Sanboot not recommended for this ISO. %s", image.SanbootHint),
 		})
 		return
 	}

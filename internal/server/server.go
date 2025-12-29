@@ -989,7 +989,9 @@ kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$
 {{else if or (eq $img.Distro "fedora") (eq $img.Distro "centos")}}
 kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}inst.repo=http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/iso/ ip=dhcp
 {{else if or (eq $img.Distro "ubuntu") (eq $img.Distro "debian")}}
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/iso/filesystem.squashfs ip=dhcp
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/iso{{$img.SquashfsPath}} ip=dhcp
+{{else if eq $img.Distro "freebsd"}}
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz vfs.root.mountfrom=cd9660:/dev/md0 kernelname=/boot/kernel/kernel
 {{else}}
 kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}iso-url=http://{{$.ServerAddr}}:{{$.HTTPPort}}/isos/{{$img.EncodedFilename}} ip=dhcp
 {{end}}
@@ -1030,6 +1032,7 @@ reboot
 		AutoInstallEnabled  bool
 		AutoInstallURL      string
 		AutoInstallParam    string
+		SquashfsPath        string
 	}
 
 	imageData := make([]ImageData, len(images))
@@ -1074,6 +1077,7 @@ reboot
 			AutoInstallEnabled: img.AutoInstallEnabled,
 			AutoInstallURL:     autoInstallURL,
 			AutoInstallParam:   autoInstallParam,
+			SquashfsPath:       img.SquashfsPath,
 		}
 	}
 
