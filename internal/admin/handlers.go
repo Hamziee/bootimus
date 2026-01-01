@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,34 @@ func NewHandler(db *database.DB, sqliteStore *storage.SQLiteStore, dataDir strin
 		bootDir:     bootDir,
 		version:     version,
 	}
+}
+
+// isRunningInDocker detects if the application is running inside a Docker container
+func isRunningInDocker() bool {
+	// Check for /.dockerenv file (most reliable)
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+
+	// Check /proc/1/cgroup for docker or containerd
+	data, err := os.ReadFile("/proc/1/cgroup")
+	if err == nil {
+		content := string(data)
+		if strings.Contains(content, "docker") || strings.Contains(content, "containerd") {
+			return true
+		}
+	}
+
+	// Check if running as PID 1 with limited process count (common in containers)
+	if os.Getpid() == 1 {
+		// Additional check: containers typically have very few processes
+		entries, err := os.ReadDir("/proc")
+		if err == nil && len(entries) < 50 {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Response helpers
@@ -588,8 +617,9 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse multipart form (max 10GB)
-	if err := r.ParseMultipartForm(10 << 30); err != nil {
+	// Use streaming multipart reader - don't load entire file into memory
+	// Only allocate 32MB for form fields, files are streamed directly
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		log.Printf("Failed to parse upload form: %v", err)
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Failed to parse form"})
 		return
@@ -610,7 +640,11 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Starting ISO upload: %s (size: %d bytes)", header.Filename, header.Size)
+	// Log initial memory state
+	var startMem runtime.MemStats
+	runtime.ReadMemStats(&startMem)
+	log.Printf("Starting ISO upload: %s (size: %d bytes) - Memory: %d MB allocated",
+		header.Filename, header.Size, startMem.Alloc/1024/1024)
 
 	// Check if file already exists on filesystem (filesystem is source of truth)
 	filePath := filepath.Join(h.isoDir, header.Filename)
@@ -673,7 +707,17 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	size := written
+
+	// Log final memory state
+	var endMem runtime.MemStats
+	runtime.ReadMemStats(&endMem)
+	runtime.GC() // Force garbage collection to free upload buffers
+	var afterGC runtime.MemStats
+	runtime.ReadMemStats(&afterGC)
+
 	log.Printf("Upload complete: %s (%d MB)", header.Filename, size/(1024*1024))
+	log.Printf("Memory usage - Start: %d MB, End: %d MB, After GC: %d MB",
+		startMem.Alloc/1024/1024, endMem.Alloc/1024/1024, afterGC.Alloc/1024/1024)
 
 	// Create entry
 	displayName := strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename))
@@ -1559,6 +1603,12 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 					return "SQLite"
 				}
 				return "Disabled"
+			}(),
+			"runtime_mode": func() string {
+				if isRunningInDocker() {
+					return "Docker"
+				}
+				return "Native"
 			}(),
 		},
 		"environment": map[string]string{

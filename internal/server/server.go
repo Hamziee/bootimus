@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -32,6 +34,35 @@ import (
 )
 
 var Version = "dev" // Overridden at build time
+
+// panicRecoveryMiddleware catches panics and logs them with full stack traces
+func panicRecoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				// Log the panic with full details
+				log.Printf("PANIC RECOVERED: %v", err)
+				log.Printf("Request: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+
+				// Get memory stats
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
+				log.Printf("Memory Stats at panic:")
+				log.Printf("  Alloc = %d MB (currently allocated)", m.Alloc/1024/1024)
+				log.Printf("  TotalAlloc = %d MB (total allocated over time)", m.TotalAlloc/1024/1024)
+				log.Printf("  Sys = %d MB (obtained from system)", m.Sys/1024/1024)
+				log.Printf("  NumGC = %d (number of GC runs)", m.NumGC)
+
+				// Print stack trace
+				log.Printf("Stack trace:\n%s", debug.Stack())
+
+				// Return 500 error to client
+				http.Error(w, "Internal Server Error - the request caused a panic. Check server logs for details.", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
 
 type Config struct {
 	TFTPPort    int
@@ -712,7 +743,7 @@ func (s *Server) startAdminServer() error {
 	addr := fmt.Sprintf(":%d", s.config.AdminPort)
 	s.adminServer = &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: panicRecoveryMiddleware(mux),
 	}
 
 	if err := s.adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {

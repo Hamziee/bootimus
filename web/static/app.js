@@ -250,6 +250,12 @@ function renderServerInfo(info) {
                     <span class="info-value"><code>${info.version}</code></span>
                 </div>
                 ` : ''}
+                ${info.configuration && info.configuration.runtime_mode ? `
+                <div class="info-item">
+                    <span class="info-label">Runtime Mode</span>
+                    <span class="info-value"><span class="badge ${info.configuration.runtime_mode === 'Docker' ? 'badge-info' : 'badge-success'}">${info.configuration.runtime_mode}</span></span>
+                </div>
+                ` : ''}
                 ${sysStats.host ? `
                     ${sysStats.host.platform ? `
                     <div class="info-item">
@@ -337,7 +343,7 @@ function renderServerInfo(info) {
         <div class="info-grid">
             <div class="info-section">
                 <h3>Configuration</h3>
-                ${Object.entries(info.configuration || {}).map(([key, value]) => `
+                ${Object.entries(info.configuration || {}).filter(([key]) => key !== 'runtime_mode').map(([key, value]) => `
                     <div class="info-item">
                         <span class="info-label">${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
                         <span class="info-value">${value || '<em>not set</em>'}</span>

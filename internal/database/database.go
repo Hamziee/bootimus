@@ -46,13 +46,65 @@ func New(cfg *Config) (*DB, error) {
 // AutoMigrate runs database migrations
 func (db *DB) AutoMigrate() error {
 	log.Println("Running database migrations...")
-	return db.DB.AutoMigrate(
+
+	// Run auto-migrate first
+	if err := db.DB.AutoMigrate(
 		&models.User{},
 		&models.Client{},
 		&models.Image{},
 		&models.BootLog{},
 		&models.CustomFile{},
-	)
+	); err != nil {
+		return err
+	}
+
+	// Custom migration: Update CustomFile unique constraint
+	if err := db.migrateCustomFileUniqueIndex(); err != nil {
+		log.Printf("Warning: CustomFile index migration failed (may already be migrated): %v", err)
+		// Don't fail if this migration errors - it might already be applied
+	}
+
+	return nil
+}
+
+// migrateCustomFileUniqueIndex migrates the custom_files unique index from single column to composite
+func (db *DB) migrateCustomFileUniqueIndex() error {
+	// Check if old index exists
+	var indexExists bool
+	err := db.DB.Raw(`
+		SELECT EXISTS (
+			SELECT 1 FROM pg_indexes
+			WHERE indexname = 'idx_custom_files_filename'
+		)
+	`).Scan(&indexExists).Error
+
+	if err != nil {
+		return fmt.Errorf("failed to check index: %w", err)
+	}
+
+	if !indexExists {
+		// Old index doesn't exist, nothing to migrate
+		log.Println("CustomFile index already migrated")
+		return nil
+	}
+
+	log.Println("Migrating CustomFile unique index...")
+
+	// Drop the old single-column unique index
+	if err := db.DB.Exec("DROP INDEX IF EXISTS idx_custom_files_filename").Error; err != nil {
+		return fmt.Errorf("failed to drop old index: %w", err)
+	}
+
+	// Create new composite unique index
+	if err := db.DB.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_filename_image
+		ON custom_files (filename, public, image_id)
+	`).Error; err != nil {
+		return fmt.Errorf("failed to create new index: %w", err)
+	}
+
+	log.Println("CustomFile index migration completed successfully")
+	return nil
 }
 
 // GetImagesForClient returns images accessible to a specific MAC address
