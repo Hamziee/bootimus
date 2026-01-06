@@ -31,5 +31,5 @@ EXPOSE 69/udp 8080/tcp 8081/tcp
 USER root
 
 VOLUME [ "/data" ]
-ENTRYPOINT ["bootimus"]
+ENTRYPOINT ["/bootimus"]
 CMD ["serve"]

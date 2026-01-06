@@ -477,6 +477,38 @@ func (s *Server) startTFTPServer() error {
 
 			log.Printf("TFTP: Client requesting file: %s", filename)
 
+			if cleanPath == "autoexec.ipxe" {
+				script := fmt.Sprintf(`#!ipxe
+
+# Auto-detect server IP and chain to dynamic menu
+dhcp
+chain http://${next-server}:%d/menu.ipxe?mac=${net0/mac} || goto failed
+
+:failed
+echo Failed to load boot menu
+echo Server: ${next-server}
+echo MAC: ${net0/mac}
+echo Press any key to retry...
+prompt
+goto dhcp
+`, s.config.HTTPPort)
+				data := []byte(script)
+				log.Printf("TFTP: Serving dynamic autoexec.ipxe (HTTP port: %d)", s.config.HTTPPort)
+
+				if rfs, ok := rf.(interface{ SetSize(int64) error }); ok {
+					rfs.SetSize(int64(len(data)))
+				}
+
+				n, err := rf.ReadFrom(bytes.NewReader(data))
+				if err != nil {
+					log.Printf("TFTP: Transfer error for %s: %v", filename, err)
+					return err
+				}
+
+				log.Printf("TFTP: Successfully sent %s (%d bytes)", filename, n)
+				return nil
+			}
+
 			data, err := bootloaders.Bootloaders.ReadFile(cleanPath)
 			if err == nil {
 				log.Printf("TFTP: Serving embedded bootloader: %s", cleanPath)
@@ -925,7 +957,7 @@ func (s *Server) handleAutoexec(w http.ResponseWriter, r *http.Request) {
 	log.Printf("autoexec.ipxe requested, chaining to menu.ipxe")
 
 	script := fmt.Sprintf(`#!ipxe
-chain http:
+chain http://%s:%d/menu.ipxe?mac=%s
 `, s.config.ServerAddr, s.config.HTTPPort, macAddress)
 
 	w.Header().Set("Content-Type", "text/plain")
@@ -987,40 +1019,40 @@ echo Auto-install enabled for this image
 {{end}}
 {{if eq $img.Distro "windows"}}
 echo Loading Windows boot files via wimboot...
-kernel http:
-initrd http:
-initrd http:
-initrd http:
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/wimboot
+initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/bcd BCD
+initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/boot.sdi boot.sdi
+initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/boot.wim boot.wim
 boot || goto failed
 {{else if eq $img.Distro "arch"}}
-kernel http:
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}archiso_http_srv=http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/iso/ ip=dhcp
 {{else if eq $img.Distro "nixos"}}
-kernel http:
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}ip=dhcp
 {{else if or (eq $img.Distro "fedora") (eq $img.Distro "centos")}}
-kernel http:
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}root=live:http://{{$.ServerAddr}}:{{$.HTTPPort}}/isos/{{$img.EncodedFilename}} rd.live.image inst.repo=http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/iso/ inst.stage2=http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/iso/ rd.neednet=1 ip=dhcp
 {{else if eq $img.Distro "debian"}}
-kernel http:
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}initrd=initrd ip=dhcp priority=critical
 {{else if eq $img.Distro "ubuntu"}}
 {{if $img.NetbootAvailable}}
-kernel http:
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}initrd=initrd ip=dhcp
 {{else}}
 {{if $img.SquashfsPath}}
-kernel http:
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}initrd=initrd ip=dhcp fetch=http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/{{$img.SquashfsPath}}
 {{else}}
-kernel http:
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}initrd=initrd ip=dhcp url=http://{{$.ServerAddr}}:{{$.HTTPPort}}/isos/{{$img.EncodedFilename}}
 {{end}}
 {{end}}
 {{else if eq $img.Distro "freebsd"}}
-kernel http:
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz vfs.root.mountfrom=cd9660:/dev/md0 kernelname=/boot/kernel/kernel
 {{else}}
-kernel http:
+kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}iso-url=http://{{$.ServerAddr}}:{{$.HTTPPort}}/isos/{{$img.EncodedFilename}} ip=dhcp
 {{end}}
 {{if ne $img.Distro "windows"}}
-initrd http:
+initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/initrd
 {{end}}
 boot || goto failed
 {{else}}
-sanboot --no-describe --drive 0x80 http:
+sanboot --no-describe --drive 0x80 http://{{$.ServerAddr}}:{{$.HTTPPort}}/isos/{{$img.EncodedFilename}}?mac={{$.MAC}}
 {{end}}
 goto start
 {{end}}

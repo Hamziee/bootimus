@@ -153,7 +153,7 @@ subnet 192.168.1.0 netmask 255.255.255.0 {
 
 See [DHCP Configuration Guide](docs/dhcp.md) for Dnsmasq, MikroTik, Ubiquiti, and more.
 
-## 🛠️ Building from Source
+## Building from Source
 
 ```bash
 # Clone repository
@@ -164,7 +164,7 @@ cd bootimus
 make build
 
 # Or manually
-CGO_ENABLED=0 go build -o bootimus .
+CGO_ENABLED=1 go build -o bootimus .
 
 # Run
 ./bootimus serve
@@ -174,13 +174,13 @@ CGO_ENABLED=0 go build -o bootimus .
 
 ```bash
 # AMD64
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bootimus-amd64
+CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o bootimus-amd64
 
 # ARM64
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bootimus-arm64
+CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -o bootimus-arm64
 
 # ARMv7
-CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -o bootimus-armv7
+CGO_ENABLED=1 GOOS=linux GOARCH=arm GOARM=7 go build -o bootimus-armv7
 ```
 
 ## Security Considerations
