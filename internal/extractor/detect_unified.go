@@ -278,36 +278,35 @@ func (e *Extractor) cacheBootFilesUnified(files *BootFiles, reader FileSystemRea
 	}
 
 	if files.Distro == "windows" {
-		bcdDest := filepath.Join(bootFilesDir, "bcd")
-		if err := reader.ExtractFile(files.Kernel, bcdDest); err != nil {
-			return fmt.Errorf("failed to extract BCD: %w", err)
+		// Extract entire ISO contents for Windows
+		extractedDir := filepath.Join(bootFilesDir, "iso")
+		if err := os.MkdirAll(extractedDir, 0755); err != nil {
+			return fmt.Errorf("failed to create extracted ISO directory: %w", err)
 		}
+
+		log.Printf("Extracting full Windows ISO contents to %s", extractedDir)
+		if err := reader.ExtractAll(extractedDir); err != nil {
+			return fmt.Errorf("failed to extract full ISO contents: %w", err)
+		}
+
+		files.ExtractedDir = extractedDir
+
+		// Update paths to point to extracted locations
+		bcdDest := filepath.Join(extractedDir, strings.TrimPrefix(files.Kernel, "/"))
 		files.Kernel = bcdDest
 
-		bootSdiDest := filepath.Join(bootFilesDir, "boot.sdi")
-		if err := reader.ExtractFile(files.Initrd, bootSdiDest); err != nil {
-			return fmt.Errorf("failed to extract boot.sdi: %w", err)
-		}
+		bootSdiDest := filepath.Join(extractedDir, strings.TrimPrefix(files.Initrd, "/"))
 		files.Initrd = bootSdiDest
 
-		bootWimDest := filepath.Join(bootFilesDir, "boot.wim")
-		if err := reader.ExtractFile(files.BootParams, bootWimDest); err != nil {
-			return fmt.Errorf("failed to extract boot.wim: %w", err)
-		}
+		bootWimDest := filepath.Join(extractedDir, strings.TrimPrefix(files.BootParams, "/"))
 		files.BootParams = bootWimDest
 
 		if files.InstallWim != "" {
-			ext := filepath.Ext(files.InstallWim)
-			installDest := filepath.Join(bootFilesDir, "install"+ext)
-			log.Printf("Extracting Windows install image: %s", files.InstallWim)
-			if err := reader.ExtractFile(files.InstallWim, installDest); err != nil {
-				log.Printf("Warning: Failed to extract install image: %v", err)
-			} else {
-				files.InstallWim = installDest
-				log.Printf("Successfully extracted install image to: %s", installDest)
-			}
+			installDest := filepath.Join(extractedDir, strings.TrimPrefix(files.InstallWim, "/"))
+			files.InstallWim = installDest
 		}
 
+		log.Printf("Windows ISO extraction complete")
 		return nil
 	}
 

@@ -156,11 +156,11 @@ func (mb *MenuBuilder) buildImageBootSections() string {
 		cacheDir := strings.TrimSuffix(img.Filename, ".iso")
 
 		switch img.BootMethod {
-		case "memdisk":
-			sb.WriteString("echo Using Thin OS memdisk loader...\n")
-			sb.WriteString(fmt.Sprintf("kernel http://%s:%d/thinos-kernel\n", mb.serverAddr, mb.httpPort))
-			sb.WriteString(fmt.Sprintf("initrd http://%s:%d/thinos-initrd.gz\n", mb.serverAddr, mb.httpPort))
-			sb.WriteString(fmt.Sprintf("imgargs thinos-kernel ISO_NAME=%s BOOTIMUS_SERVER=%s console=tty0 console=ttyS0,115200n8 earlyprintk=vga,keep debug loglevel=8 rdinit=/init\n", encodedFilename, mb.serverAddr))
+		case "nbd":
+			sb.WriteString("echo Using NBD (Network Block Device) mount...\n")
+			sb.WriteString(fmt.Sprintf("kernel http://%s:%d/bootenv/vmlinuz-lts\n", mb.serverAddr, mb.httpPort))
+			sb.WriteString(fmt.Sprintf("initrd http://%s:%d/bootenv/initramfs-bootimus\n", mb.serverAddr, mb.httpPort))
+			sb.WriteString(fmt.Sprintf("imgargs vmlinuz-lts init=/init iso=%s server=%s nbdport=10809 console=tty0 console=ttyS0\n", encodedFilename, mb.serverAddr))
 			sb.WriteString("boot || goto failed\n")
 
 		case "kernel":
@@ -204,17 +204,9 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 	case "windows":
 		sb.WriteString("echo Loading Windows boot files via wimboot...\n")
 		sb.WriteString(fmt.Sprintf("kernel %s/wimboot\n", baseURL))
-		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/bcd BCD\n", baseURL, cacheDir))
-		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/boot.sdi boot.sdi\n", baseURL, cacheDir))
-		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/boot.wim @boot.wim\n", baseURL, cacheDir))
-		if img.InstallWimPath != "" {
-			// Determine if this is install.wim or install.esd
-			installBasename := "install.wim"
-			if strings.Contains(strings.ToLower(img.InstallWimPath), ".esd") {
-				installBasename = "install.esd"
-			}
-			sb.WriteString(fmt.Sprintf("initrd --name %s %s/boot/%s/%s\n", installBasename, baseURL, cacheDir, installBasename))
-		}
+		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/iso/boot/bcd BCD || initrd %s/boot/%s/iso/BOOT/BCD BCD\n", baseURL, cacheDir, baseURL, cacheDir))
+		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/iso/boot/boot.sdi boot.sdi || initrd %s/boot/%s/iso/BOOT/BOOT.SDI boot.sdi\n", baseURL, cacheDir, baseURL, cacheDir))
+		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/iso/sources/boot.wim boot.wim || initrd %s/boot/%s/iso/SOURCES/BOOT.WIM boot.wim\n", baseURL, cacheDir, baseURL, cacheDir))
 		sb.WriteString("boot || goto failed\n")
 
 	case "arch":

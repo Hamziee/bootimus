@@ -1,0 +1,103 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BOOTENV_DIR="$PROJECT_ROOT/bootloaders/bootenv"
+ALPINE_VERSION="3.19"
+
+echo "=== Building Alpine Linux NBD Boot Environment with Docker ==="
+
+cd "$PROJECT_ROOT"
+
+cat > Dockerfile.alpine-nbd << 'EOFDOCKERFILE'
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+    alpine-base \
+    mkinitfs \
+    nbd-client \
+    kexec-tools \
+    dhcpcd-openrc \
+    busybox \
+    linux-lts
+
+RUN cat > /tmp/debug-init.sh << 'EOFINIT'
+#!/bin/sh
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+echo ""
+echo "=== Bootimus NBD Debug Shell ==="
+echo ""
+echo "Available commands:"
+echo "  - ip link (show network interfaces)"
+echo "  - ip link set <iface> up"
+echo "  - udhcpc -i <iface> -q -n"
+echo "  - modprobe nbd max_part=8"
+echo "  - nbd-client <server> 10809 /dev/nbd0 -N <filename> -persist"
+echo "  - mount -t iso9660 /dev/nbd0 /mnt/iso"
+echo "  - kexec -l /mnt/iso/<path>/vmlinuz --initrd=/mnt/iso/<path>/initrd --append='boot=live ip=dhcp'"
+echo "  - kexec -e"
+echo ""
+echo "Kernel command line:"
+cat /proc/cmdline
+echo ""
+
+exec /bin/sh
+EOFINIT
+
+RUN chmod +x /tmp/debug-init.sh && ls -lh /tmp/debug-init.sh
+
+RUN mkinitfs -o /boot/initramfs-base $(ls /lib/modules/ | head -1) && ls -lh /boot/initramfs-base
+
+RUN mkdir -p /tmp/initramfs
+
+RUN cd /tmp/initramfs && gunzip -c /boot/initramfs-base | cpio -idm
+
+RUN echo "=== Before replacing init ===" && ls -la /tmp/initramfs/init
+
+RUN rm -f /tmp/initramfs/init && mv /tmp/debug-init.sh /tmp/initramfs/init
+
+RUN echo "=== After replacing init ===" && ls -la /tmp/initramfs/init
+
+RUN echo "=== First 20 lines of new init ===" && head -20 /tmp/initramfs/init
+
+RUN echo "=== Adding nbd-client and kexec binaries ===" && \
+    mkdir -p /tmp/initramfs/usr/sbin && \
+    cp /usr/sbin/nbd-client /tmp/initramfs/usr/sbin/ && \
+    cp /usr/sbin/kexec /tmp/initramfs/usr/sbin/ && \
+    ls -lh /tmp/initramfs/usr/sbin/nbd-client /tmp/initramfs/usr/sbin/kexec
+
+RUN echo "=== Adding required libraries ===" && \
+    mkdir -p /tmp/initramfs/lib /tmp/initramfs/usr/lib && \
+    ldd /usr/sbin/nbd-client | grep "=>" | awk '{print $3}' | xargs -I {} cp {} /tmp/initramfs/lib/ && \
+    ldd /usr/sbin/kexec | grep "=>" | awk '{print $3}' | xargs -I {} cp {} /tmp/initramfs/lib/ || true
+
+RUN cd /tmp/initramfs && find . | cpio -o -H newc | gzip -9 > /boot/initramfs-bootimus
+
+RUN echo "=== Final initramfs created ===" && ls -lh /boot/initramfs-bootimus
+
+CMD ["sh"]
+EOFDOCKERFILE
+
+echo "Building Docker image..."
+docker build --no-cache -f Dockerfile.alpine-nbd -t alpine-nbd-builder .
+
+echo "Extracting kernel and initramfs..."
+CONTAINER_ID=$(docker create alpine-nbd-builder)
+docker cp $CONTAINER_ID:/boot/vmlinuz-lts "$BOOTENV_DIR/vmlinuz-lts"
+docker cp $CONTAINER_ID:/boot/initramfs-bootimus "$BOOTENV_DIR/initramfs-bootimus"
+docker rm $CONTAINER_ID
+
+echo ""
+echo "=== Build Complete ==="
+ls -lh "$BOOTENV_DIR/vmlinuz-lts" "$BOOTENV_DIR/initramfs-bootimus"
+echo ""
+echo "Alpine Linux with NBD support created!"
+echo ""
+echo "Next steps:"
+echo "  1. Rebuild bootimus: go build -o bootimus"
+echo "  2. Deploy and test"

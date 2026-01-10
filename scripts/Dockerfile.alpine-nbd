@@ -1,0 +1,70 @@
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+    alpine-base \
+    mkinitfs \
+    nbd-client \
+    kexec-tools \
+    dhcpcd-openrc \
+    busybox \
+    linux-lts
+
+RUN cat > /tmp/debug-init.sh << 'EOFINIT'
+#!/bin/sh
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+echo ""
+echo "=== Bootimus NBD Debug Shell ==="
+echo ""
+echo "Available commands:"
+echo "  - ip link (show network interfaces)"
+echo "  - ip link set <iface> up"
+echo "  - udhcpc -i <iface> -q -n"
+echo "  - modprobe nbd max_part=8"
+echo "  - nbd-client <server> 10809 /dev/nbd0 -N <filename> -persist"
+echo "  - mount -t iso9660 /dev/nbd0 /mnt/iso"
+echo "  - kexec -l /mnt/iso/<path>/vmlinuz --initrd=/mnt/iso/<path>/initrd --append='boot=live ip=dhcp'"
+echo "  - kexec -e"
+echo ""
+echo "Kernel command line:"
+cat /proc/cmdline
+echo ""
+
+exec /bin/sh
+EOFINIT
+
+RUN chmod +x /tmp/debug-init.sh && ls -lh /tmp/debug-init.sh
+
+RUN mkinitfs -o /boot/initramfs-base $(ls /lib/modules/ | head -1) && ls -lh /boot/initramfs-base
+
+RUN mkdir -p /tmp/initramfs
+
+RUN cd /tmp/initramfs && gunzip -c /boot/initramfs-base | cpio -idm
+
+RUN echo "=== Before replacing init ===" && ls -la /tmp/initramfs/init
+
+RUN rm -f /tmp/initramfs/init && mv /tmp/debug-init.sh /tmp/initramfs/init
+
+RUN echo "=== After replacing init ===" && ls -la /tmp/initramfs/init
+
+RUN echo "=== First 20 lines of new init ===" && head -20 /tmp/initramfs/init
+
+RUN echo "=== Adding nbd-client and kexec binaries ===" && \
+    mkdir -p /tmp/initramfs/usr/sbin && \
+    cp /usr/sbin/nbd-client /tmp/initramfs/usr/sbin/ && \
+    cp /usr/sbin/kexec /tmp/initramfs/usr/sbin/ && \
+    ls -lh /tmp/initramfs/usr/sbin/nbd-client /tmp/initramfs/usr/sbin/kexec
+
+RUN echo "=== Adding required libraries ===" && \
+    mkdir -p /tmp/initramfs/lib /tmp/initramfs/usr/lib && \
+    ldd /usr/sbin/nbd-client | grep "=>" | awk '{print $3}' | xargs -I {} cp {} /tmp/initramfs/lib/ && \
+    ldd /usr/sbin/kexec | grep "=>" | awk '{print $3}' | xargs -I {} cp {} /tmp/initramfs/lib/ || true
+
+RUN cd /tmp/initramfs && find . | cpio -o -H newc | gzip -9 > /boot/initramfs-bootimus
+
+RUN echo "=== Final initramfs created ===" && ls -lh /boot/initramfs-bootimus
+
+CMD ["sh"]

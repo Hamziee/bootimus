@@ -192,9 +192,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Tab Management
 function setupTabs() {
-    document.querySelectorAll('.tab').forEach(tab => {
+    // Only setup tabs that are NOT inside a modal
+    document.querySelectorAll('.tabs:not(#image-properties-modal .tabs) .tab').forEach(tab => {
         tab.addEventListener('click', () => {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            // Only affect tabs in the same tabs container (main page tabs)
+            const tabsContainer = tab.closest('.tabs');
+            tabsContainer.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
 
             tab.classList.add('active');
@@ -654,6 +657,10 @@ function getSortedImages() {
                 aVal = a.boot_count || 0;
                 bVal = b.boot_count || 0;
                 break;
+            case 'group':
+                aVal = (a.group && a.group.name ? a.group.name : '').toLowerCase();
+                bVal = (b.group && b.group.name ? b.group.name : '').toLowerCase();
+                break;
             default:
                 return 0;
         }
@@ -688,6 +695,7 @@ function renderImagesTable() {
                     <th onclick="sortImages('name')" style="cursor: pointer;">Name ${sortIcon('name')}</th>
                     <th onclick="sortImages('filename')" style="cursor: pointer;">Filename ${sortIcon('filename')}</th>
                     <th onclick="sortImages('size')" style="cursor: pointer;">Size ${sortIcon('size')}</th>
+                    <th onclick="sortImages('group')" style="cursor: pointer;">Group ${sortIcon('group')}</th>
                     <th onclick="sortImages('status')" style="cursor: pointer;">Status ${sortIcon('status')}</th>
                     <th onclick="sortImages('visibility')" style="cursor: pointer;">Visibility ${sortIcon('visibility')}</th>
                     <th onclick="sortImages('boot_method')" style="cursor: pointer;">Boot Method ${sortIcon('boot_method')}</th>
@@ -704,6 +712,12 @@ function renderImagesTable() {
                         <td><code>${img.filename}</code></td>
                         <td>${formatBytes(img.size)}</td>
                         <td>
+                            ${img.group && img.group.name ?
+                                '<span class="badge badge-info">' + escapeHtml(img.group.name) + '</span>' :
+                                '<span style="color: #94a3b8;">-</span>'
+                            }
+                        </td>
+                        <td>
                             <span class="badge ${img.enabled ? 'badge-success' : 'badge-danger'}">
                                 ${img.enabled ? 'Enabled' : 'Disabled'}
                             </span>
@@ -716,8 +730,8 @@ function renderImagesTable() {
                         <td>
                             ${img.boot_method === 'kernel' ?
                                 '<span class="badge badge-success">Kernel/Initrd</span>' :
-                                img.boot_method === 'memdisk' ?
-                                '<span class="badge badge-warning">Memdisk (ThinOS)</span>' :
+                                img.boot_method === 'nbd' ?
+                                '<span class="badge badge-warning">NBD Mount</span>' :
                                 '<span class="badge badge-info">SAN Boot</span>'
                             }
                             ${!img.sanboot_compatible && img.sanboot_hint && img.boot_method === 'sanboot' && !img.extracted ?
@@ -726,14 +740,6 @@ function renderImagesTable() {
                             }
                             ${img.extracted && img.boot_method === 'sanboot' ?
                                 '<br><button class="btn btn-sm" style="margin-top: 4px;" onclick="setBootMethod(\''+img.filename+'\', \'kernel\')">Switch to Kernel</button>' :
-                                ''
-                            }
-                            ${img.boot_method === 'kernel' && img.sanboot_compatible ?
-                                '<br><button class="btn btn-sm" style="margin-top: 4px;" onclick="setBootMethod(\''+img.filename+'\', \'sanboot\')">Switch to SAN</button>' :
-                                ''
-                            }
-                            ${img.boot_method === 'kernel' && !img.sanboot_compatible ?
-                                '<br><button class="btn btn-sm" style="margin-top: 4px; opacity: 0.5;" disabled title="'+img.sanboot_hint+'">SAN Not Supported</button>' :
                                 ''
                             }
                         </td>
@@ -773,8 +779,6 @@ function renderImagesTable() {
                                 ''
                             }
                             <button class="btn btn-info btn-sm" onclick="showImagePropertiesModal('${img.filename}')">⚙️ Properties</button>
-                            <button class="btn btn-sm" onclick="showAutoInstallModal('${img.filename}', '${img.name}')">Auto-Install</button>
-                            <button class="btn btn-sm" onclick="showImageFilesModal(${img.id}, '${escapeHtml(img.name)}')">📁 Files</button>
                             <button class="btn btn-danger btn-sm" onclick="deleteImage('${img.filename}', '${img.name}')">Delete</button>
                         </td>
                     </tr>
@@ -980,8 +984,8 @@ async function setBootMethod(filename, method) {
 async function cycleBootMethod(filename, currentMethod) {
     const cycle = {
         'sanboot': 'kernel',
-        'kernel': 'memdisk',
-        'memdisk': 'sanboot'
+        'kernel': 'nbd',
+        'nbd': 'sanboot'
     };
     const nextMethod = cycle[currentMethod] || 'sanboot';
     await setBootMethod(filename, nextMethod);
@@ -2312,11 +2316,13 @@ function switchPropsTab(tabName) {
 
     if (tabName === 'props-general') {
         document.getElementById('props-general-content').style.display = 'block';
+    } else if (tabName === 'props-autoinstall') {
+        document.getElementById('props-autoinstall-content').style.display = 'block';
     } else if (tabName === 'props-files') {
         document.getElementById('props-files-content').style.display = 'block';
         const filename = document.getElementById('image-props-filename').value;
         if (filename) {
-            loadImageFileBrowser(filename);
+            loadPropsImageFiles();
         }
     }
 }
@@ -2338,6 +2344,12 @@ async function showImagePropertiesModal(filename) {
     document.getElementById('image-props-boot-params').value = img.boot_params || '';
     document.getElementById('image-props-enabled').checked = img.enabled;
     document.getElementById('image-props-public').checked = img.public;
+
+    // Auto-install fields
+    document.getElementById('image-props-autoinstall-enabled').checked = img.autoinstall_enabled || false;
+    document.getElementById('image-props-autoinstall-type').value = img.autoinstall_script_type || 'preseed';
+    document.getElementById('image-props-autoinstall-script').value = img.autoinstall_script || '';
+    document.getElementById('image-props-autoinstall-url').textContent = img.filename;
 
     const groupSelect = document.getElementById('image-props-group');
     groupSelect.innerHTML = '<option value="">Unassigned</option>';
@@ -2533,6 +2545,11 @@ async function saveImageProperties() {
     const enabled = document.getElementById('image-props-enabled').checked;
     const isPublic = document.getElementById('image-props-public').checked;
 
+    // Get auto-install settings
+    const autoInstallEnabled = document.getElementById('image-props-autoinstall-enabled').checked;
+    const autoInstallType = document.getElementById('image-props-autoinstall-type').value;
+    const autoInstallScript = document.getElementById('image-props-autoinstall-script').value;
+
     const updates = {
         name: displayName,
         description: description,
@@ -2545,6 +2562,7 @@ async function saveImageProperties() {
     };
 
     try {
+        // Update general image properties
         const res = await fetch(`${API_BASE}/images?filename=${encodeURIComponent(filename)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -2553,16 +2571,368 @@ async function saveImageProperties() {
 
         const data = await res.json();
 
-        if (data.success) {
-            showNotification('Image properties updated successfully', 'success');
+        if (!data.success) {
+            showNotification('Failed to update image: ' + (data.error || 'Unknown error'), 'error');
+            return;
+        }
+
+        // Update auto-install script
+        const autoInstallRes = await fetch(`${API_BASE}/images/autoinstall?filename=${encodeURIComponent(filename)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                enabled: autoInstallEnabled,
+                script_type: autoInstallType,
+                script: autoInstallScript
+            })
+        });
+
+        const autoInstallData = await autoInstallRes.json();
+
+        if (autoInstallData.success) {
+            showNotification('Image properties and auto-install updated successfully', 'success');
             closeModal('image-properties-modal');
             loadImages();
             loadStats();
         } else {
-            showNotification('Failed to update image: ' + (data.error || 'Unknown error'), 'error');
+            showNotification('Image updated but auto-install failed: ' + (autoInstallData.error || 'Unknown error'), 'error');
         }
     } catch (err) {
         showNotification('Failed to update image properties', 'error');
+        console.error(err);
+    }
+}
+
+async function loadPropsImageFiles() {
+    const filename = document.getElementById('image-props-filename').value;
+    if (!filename) return;
+
+    const listContainer = document.getElementById('image-props-files-list');
+    listContainer.innerHTML = '<div class="loading"><div class="spinner"></div>Loading files...</div>';
+
+    try {
+        // Find image in global images array
+        const image = images.find(img => img.filename === filename);
+        if (!image) {
+            throw new Error('Image not found');
+        }
+
+        // Fetch filesystem file list (returns {path, is_dir, size})
+        const res = await fetch(`${API_BASE}/images/files?filename=${encodeURIComponent(filename)}`);
+        if (!res.ok) throw new Error('Failed to load files');
+
+        const data = await res.json();
+        const allFiles = (data.success && data.data && data.data.files) ? data.data.files : [];
+
+        // Separate by type
+        const autoinstallFiles = allFiles.filter(f => f.path.startsWith('autoinstall/'));
+        // Everything else that's not in autoinstall is considered extracted ISO contents
+        const isoContents = allFiles.filter(f => !f.path.startsWith('autoinstall/'));
+
+        let html = '';
+
+        // 1. Uploaded Files Section (at top)
+        html += '<div style="margin-bottom: 15px;">';
+        html += '<h4 style="margin: 0 0 8px 0; font-size: 14px; color: #60a5fa; border-bottom: 1px solid #334155; padding-bottom: 4px;">Uploaded Files</h4>';
+        if (autoinstallFiles.length > 0) {
+            const tree = buildFSTree(autoinstallFiles, 'autoinstall/');
+            html += renderFSTree(tree, filename, 0, true);
+        } else {
+            html += '<div style="color: #94a3b8; font-size: 12px; padding: 6px 8px;">No uploaded files - use the form above to upload</div>';
+        }
+        html += '</div>';
+
+        // 2. ISO File Section
+        html += '<div style="margin-bottom: 15px;">';
+        html += '<h4 style="margin: 0 0 8px 0; font-size: 14px; color: #60a5fa; border-bottom: 1px solid #334155; padding-bottom: 4px;">ISO File</h4>';
+        const sizeStr = formatBytes(image.size);
+        const isoDownloadUrl = `/isos/${encodeURIComponent(filename)}`;
+        html += `
+            <div style="padding: 8px; margin: 2px 0; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; background: #1e293b;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #cbd5e1;">💿</span>
+                    <span style="color: #e2e8f0;">${escapeHtml(filename)}</span>
+                    <span style="color: #94a3b8; font-size: 12px;">(${sizeStr})</span>
+                </div>
+                <a href="${isoDownloadUrl}" class="btn btn-primary btn-sm" download style="padding: 4px 12px; font-size: 12px; white-space: nowrap; text-decoration: none;">Download</a>
+            </div>
+        `;
+        html += '</div>';
+
+        // 2.5. Extracted Contents Delete Button (only if image is extracted)
+        if (image.extracted && isoContents.length > 0) {
+            html += '<div style="background: #1e293b; padding: 15px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #334155;">';
+            html += '<h4 style="margin: 0 0 10px 0; font-size: 14px; color: #60a5fa;">Extracted Contents Management</h4>';
+            html += '<button class="btn btn-danger btn-sm" onclick="deleteExtractedContents()">Delete Extracted Boot Files</button>';
+            html += '<div style="color: #94a3b8; display: block; margin-top: 8px; font-size: 12px;">This will delete all extracted boot files and reset the image to sanboot mode. The autoinstall folder will be preserved. You can re-extract the ISO afterwards.</div>';
+            html += '</div>';
+        }
+
+        // 3. Extracted Files Section
+        html += '<div>';
+        html += '<h4 style="margin: 0 0 8px 0; font-size: 14px; color: #60a5fa; border-bottom: 1px solid #334155; padding-bottom: 4px;">Extracted Files</h4>';
+        if (isoContents.length > 0) {
+            const tree = buildFSTree(isoContents, '');
+            html += renderFSTree(tree, filename, 0, false);
+        } else if (image.extracted) {
+            html += '<div style="color: #94a3b8; font-size: 12px; padding: 6px 8px;">Extracted but no files found</div>';
+        } else {
+            html += '<div style="color: #94a3b8; font-size: 12px; padding: 6px 8px;">Not extracted - click "Extract" button to enable kernel boot</div>';
+        }
+        html += '</div>';
+
+        listContainer.innerHTML = html;
+
+    } catch (err) {
+        listContainer.innerHTML = `
+            <div style="text-align: center; padding: 20px; color: #ef4444;">
+                <p style="margin: 0; font-size: 13px;">Failed to load files</p>
+                <p style="margin: 4px 0 0 0; font-size: 12px;">${escapeHtml(err.message)}</p>
+            </div>
+        `;
+        console.error(err);
+    }
+}
+
+function buildFSTree(files, stripPrefix) {
+    const root = { name: '/', type: 'folder', children: {}, path: '/' };
+
+    files.forEach(file => {
+        let pathToUse = file.path;
+        if (stripPrefix && pathToUse.startsWith(stripPrefix)) {
+            pathToUse = pathToUse.substring(stripPrefix.length);
+        }
+
+        const parts = pathToUse.split('/').filter(p => p);
+        let current = root;
+
+        parts.forEach((part, idx) => {
+            if (!current.children[part]) {
+                const isLastPart = idx === parts.length - 1;
+                current.children[part] = {
+                    name: part,
+                    type: file.is_dir && isLastPart ? 'folder' : (isLastPart ? 'file' : 'folder'),
+                    children: {},
+                    fullPath: file.path,
+                    size: file.size || 0
+                };
+            }
+            current = current.children[part];
+        });
+    });
+
+    return root;
+}
+
+function renderFSTree(node, filename, level = 0, showDelete = false) {
+    const entries = Object.values(node.children).sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+    });
+
+    if (entries.length === 0 && level === 0) {
+        return '<div style="color: #94a3b8; padding: 10px; font-size: 13px;">Empty directory</div>';
+    }
+
+    const baseDir = filename.replace(/\.[^/.]+$/, '');
+
+    let html = '';
+    entries.forEach(entry => {
+        const indent = level * 16;
+        const hasChildren = entry.type === 'folder' && Object.keys(entry.children).length > 0;
+
+        if (entry.type === 'folder') {
+            const folderId = 'folder-' + Math.random().toString(36).substr(2, 9);
+            html += `
+                <div style="margin-left: ${indent}px;">
+                    <div onclick="toggleFolder('${folderId}')" style="cursor: pointer; padding: 4px 8px; margin: 2px 0; border-radius: 4px; display: flex; align-items: center; gap: 8px; font-size: 13px; user-select: none; color: #94a3b8;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">
+                        <span id="${folderId}-icon" style="font-family: monospace; width: 12px; display: inline-block;">▶</span>
+                        <span style="color: #60a5fa;">📁 ${escapeHtml(entry.name)}</span>
+                    </div>
+                    <div id="${folderId}" style="display: none;">
+                        ${hasChildren ? renderFSTree(entry, filename, level + 1, showDelete) : ''}
+                    </div>
+                </div>
+            `;
+        } else {
+            const downloadUrl = `/boot/${encodeURIComponent(baseDir)}/${encodeURIComponent(entry.fullPath)}`;
+            const sizeStr = entry.size > 0 ? formatBytes(entry.size) : '';
+
+            html += `
+                <div style="margin-left: ${indent}px; padding: 6px 8px; margin: 2px 0; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; background: #1e293b;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+                        <span style="color: #cbd5e1;">📄</span>
+                        <span style="color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(entry.name)}</span>
+                        ${sizeStr ? `<span style="color: #64748b; font-size: 11px;">${sizeStr}</span>` : ''}
+                    </div>
+                    <div style="display: flex; gap: 6px; flex-shrink: 0;">
+                        <a href="${downloadUrl}" class="btn btn-primary btn-sm" download style="padding: 3px 10px; font-size: 11px; white-space: nowrap; text-decoration: none;">Download</a>
+                        ${showDelete ? `<button class="btn btn-danger btn-sm" onclick="deleteFileByPath('${escapeHtml(entry.fullPath)}')" style="padding: 3px 10px; font-size: 11px;">Delete</button>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+    });
+
+    return html;
+}
+
+function toggleFolder(folderId) {
+    const folder = document.getElementById(folderId);
+    const icon = document.getElementById(folderId + '-icon');
+
+    if (folder.style.display === 'none') {
+        folder.style.display = 'block';
+        icon.textContent = '▼';
+    } else {
+        folder.style.display = 'none';
+        icon.textContent = '▶';
+    }
+}
+
+async function deleteFileByPath(filePath) {
+    if (!confirm(`Are you sure you want to delete ${filePath}?`)) {
+        return;
+    }
+
+    const filename = document.getElementById('image-props-filename').value;
+    const baseDir = filename.replace(/\.[^/.]+$/, '');
+
+    try {
+        const res = await fetch(`${API_BASE}/images/files/delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filename: filename,
+                base_dir: baseDir,
+                path: filePath,
+                is_dir: false,
+                is_iso: false
+            })
+        });
+
+        const data = await res.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Delete failed');
+        }
+
+        showNotification('File deleted successfully', 'success');
+        await loadPropsImageFiles();
+
+    } catch (err) {
+        showNotification(`Failed to delete file: ${err.message}`, 'error');
+        console.error(err);
+    }
+}
+
+async function deleteExtractedContents() {
+    if (!confirm('Are you sure you want to delete all extracted boot files? This will reset the image to sanboot mode. The autoinstall folder will be preserved.')) {
+        return;
+    }
+
+    const filename = document.getElementById('image-props-filename').value;
+    const baseDir = filename.replace(/\.[^/.]+$/, '');
+
+    try {
+        const res = await fetch(`${API_BASE}/images/files/delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filename: filename,
+                base_dir: baseDir,
+                path: '',
+                is_dir: true,
+                is_iso: false
+            })
+        });
+
+        const data = await res.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Delete failed');
+        }
+
+        showNotification('Extracted contents deleted successfully', 'success');
+
+        // Reload image list and files
+        await loadImages();
+        await loadPropsImageFiles();
+
+    } catch (err) {
+        showNotification(`Failed to delete extracted contents: ${err.message}`, 'error');
+        console.error(err);
+    }
+}
+
+async function uploadPropsImageFile() {
+    const filename = document.getElementById('image-props-filename').value;
+    const fileInput = document.getElementById('props-file-input');
+
+    if (!fileInput.files || fileInput.files.length === 0) {
+        showNotification('Please select a file', 'error');
+        return;
+    }
+
+    try {
+        // Find image in global images array
+        const image = images.find(img => img.filename === filename);
+        if (!image) {
+            throw new Error('Image not found');
+        }
+
+        // Upload file - all files go to autoinstall folder
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('imageId', image.id);
+        formData.append('autoInstall', 'true');
+        formData.append('public', 'false');
+
+        const uploadRes = await fetch(`${API_BASE}/files/upload`, {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await uploadRes.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Upload failed');
+        }
+
+        showNotification('File uploaded successfully', 'success');
+
+        // Reset form
+        fileInput.value = '';
+
+        // Reload file list
+        await loadPropsImageFiles();
+
+    } catch (err) {
+        showNotification(`Failed to upload file: ${err.message}`, 'error');
+        console.error(err);
+    }
+}
+
+async function deletePropsImageFile(imageId, fileId) {
+    if (!confirm('Are you sure you want to delete this file?')) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/images/${imageId}/files/${fileId}`, {
+            method: 'DELETE'
+        });
+
+        if (!res.ok) {
+            const errorData = await res.json();
+            throw new Error(errorData.error || 'Delete failed');
+        }
+
+        showNotification('File deleted successfully', 'success');
+        await loadPropsImageFiles();
+
+    } catch (err) {
+        showNotification(`Failed to delete file: ${err.message}`, 'error');
         console.error(err);
     }
 }

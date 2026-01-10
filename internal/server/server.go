@@ -25,6 +25,7 @@ import (
 	"bootimus/internal/admin"
 	"bootimus/internal/auth"
 	"bootimus/internal/models"
+	"bootimus/internal/nbd"
 	"bootimus/internal/storage"
 	"bootimus/web"
 
@@ -67,6 +68,8 @@ type Config struct {
 	ServerAddr string
 	Storage    storage.Storage
 	Auth       *auth.Manager
+	NBDEnabled bool
+	NBDPort    int
 }
 
 type Server struct {
@@ -365,6 +368,18 @@ func (s *Server) Start() error {
 			log.Printf("Admin server error: %v", err)
 		}
 	}()
+
+	if s.config.NBDEnabled {
+		log.Printf("NBD Port: %d", s.config.NBDPort)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			nbdServer := nbd.NewServer(s.config.ISODir, s.config.NBDPort)
+			if err := nbdServer.Start(); err != nil {
+				log.Printf("NBD server error: %v", err)
+			}
+		}()
+	}
 
 	return nil
 }
@@ -735,6 +750,22 @@ func (s *Server) startHTTPServer() error {
 
 	mux.HandleFunc("/files/", s.handleCustomFile)
 
+	mux.HandleFunc("/bootenv/", func(w http.ResponseWriter, r *http.Request) {
+		urlPath := strings.TrimPrefix(r.URL.Path, "/bootenv/")
+		filePath := filepath.Join("bootenv", urlPath)
+		log.Printf("HTTP: Bootenv request - %s (always embedded)", urlPath)
+
+		data, err := bootloaders.Bootloaders.ReadFile(filePath)
+		if err != nil {
+			log.Printf("HTTP: Error reading embedded bootenv file %s: %v", filePath, err)
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("HTTP: Successfully read embedded bootenv file %s (%d bytes)", filePath, len(data))
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Write(data)
+	})
+
 	addr := fmt.Sprintf(":%d", s.config.HTTPPort)
 	s.httpServer = &http.Server{
 		Addr:    addr,
@@ -1068,9 +1099,11 @@ echo Auto-install enabled for this image
 {{if eq $img.Distro "windows"}}
 echo Loading Windows boot files via wimboot...
 kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/wimboot
+initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/bootmgfw.efi bootmgfw.efi
+initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/bootx64.efi bootx64.efi
 initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/bcd BCD
 initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/boot.sdi boot.sdi
-initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/boot.wim @boot.wim
+initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/boot.wim boot.wim
 {{if $img.InstallWimPath}}initrd --name {{$img.InstallBasename}} http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/{{$img.InstallBasename}}
 {{end}}boot || goto failed
 {{else if eq $img.Distro "arch"}}

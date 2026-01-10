@@ -18,7 +18,7 @@ ARG VERSION=dev
 ARG TARGETOS=linux
 ARG TARGETARCH
 RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
-    -a -ldflags="-w -s -X bootimus/cmd.version=${VERSION}" \
+    -a -ldflags="-w -s -X bootimus/internal/server.Version=${VERSION}" \
     -o bootimus .
 
 # Stage 2: Install wimlib-tools
@@ -38,7 +38,7 @@ COPY --from=wimlib-installer /usr/lib/*/libxml2.so* /usr/lib/
 COPY --from=wimlib-installer /usr/lib/*/libicuuc.so* /usr/lib/
 COPY --from=wimlib-installer /usr/lib/*/libicudata.so* /usr/lib/
 
-EXPOSE 69/udp 8080/tcp 8081/tcp
+EXPOSE 69/udp 8080/tcp 8081/tcp 10809/tcp
 
 USER root
 

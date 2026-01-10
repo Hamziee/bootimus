@@ -162,6 +162,8 @@ func runServe(cmd *cobra.Command, args []string) {
 		ServerAddr: serverAddr,
 		Storage:    store,
 		Auth:       authMgr,
+		NBDEnabled: viper.GetBool("nbd_enabled"),
+		NBDPort:    viper.GetInt("nbd_port"),
 	}
 
 	srv := server.New(cfg)

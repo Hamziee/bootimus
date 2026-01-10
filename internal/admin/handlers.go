@@ -327,6 +327,23 @@ func (h *Handler) UpdateImage(w http.ResponseWriter, r *http.Request) {
 	if public, ok := updates["public"].(bool); ok {
 		image.Public = public
 	}
+	if groupID, ok := updates["group_id"]; ok {
+		if groupID == nil {
+			image.GroupID = nil
+		} else if gid, ok := groupID.(float64); ok {
+			groupIDUint := uint(gid)
+			image.GroupID = &groupIDUint
+		}
+	}
+	if order, ok := updates["order"].(float64); ok {
+		image.Order = int(order)
+	}
+	if bootMethod, ok := updates["boot_method"].(string); ok {
+		image.BootMethod = bootMethod
+	}
+	if bootParams, ok := updates["boot_params"].(string); ok {
+		image.BootParams = bootParams
+	}
 
 	if err := h.storage.UpdateImage(filename, image); err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
@@ -706,8 +723,8 @@ func (h *Handler) SetBootMethod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.BootMethod != "sanboot" && req.BootMethod != "kernel" && req.BootMethod != "memdisk" {
-		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid boot method (must be 'sanboot', 'kernel', or 'memdisk')"})
+	if req.BootMethod != "sanboot" && req.BootMethod != "kernel" && req.BootMethod != "nbd" {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid boot method (must be 'sanboot', 'kernel', or 'nbd')"})
 		return
 	}
 
@@ -1670,7 +1687,7 @@ func (h *Handler) UploadCustomFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseMultipartForm(100 << 20); err != nil {
+	if err := r.ParseMultipartForm(500 << 20); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to parse form: %v", err),
@@ -1739,7 +1756,7 @@ func (h *Handler) UploadCustomFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		destDir = filepath.Join(h.isoDir, imageName, "files")
+		destDir = filepath.Join(h.isoDir, imageName, "autoinstall")
 	} else {
 		h.sendJSON(w, http.StatusBadRequest, Response{
 			Success: false,
@@ -1782,6 +1799,28 @@ func (h *Handler) UploadCustomFile(w http.ResponseWriter, r *http.Request) {
 		contentType = "application/octet-stream"
 	}
 
+	// Check if file already exists and delete it first
+	log.Printf("Checking for existing file: filename=%s, imageID=%v, public=%v", cleanFilename, imageID, isPublic)
+	existingFile, err := h.storage.GetCustomFileByFilenameAndImage(cleanFilename, imageID, isPublic)
+	if err != nil {
+		log.Printf("Query result: %v", err)
+	}
+	if existingFile != nil {
+		log.Printf("File %s already exists (ID: %d), deleting old record", cleanFilename, existingFile.ID)
+		if err := h.storage.DeleteCustomFile(existingFile.ID); err != nil {
+			log.Printf("ERROR: Failed to delete existing file record: %v", err)
+			os.Remove(destPath)
+			h.sendJSON(w, http.StatusInternalServerError, Response{
+				Success: false,
+				Error:   fmt.Sprintf("Failed to delete existing file: %v", err),
+			})
+			return
+		}
+		log.Printf("Successfully deleted old file record ID: %d", existingFile.ID)
+	} else {
+		log.Printf("No existing file found, creating new record")
+	}
+
 	customFile := &models.CustomFile{
 		Filename:        cleanFilename,
 		OriginalName:    originalFilename,
@@ -1794,7 +1833,9 @@ func (h *Handler) UploadCustomFile(w http.ResponseWriter, r *http.Request) {
 		AutoInstall:     autoInstall,
 	}
 
+	log.Printf("Attempting to create file record: %+v", customFile)
 	if err = h.storage.CreateCustomFile(customFile); err != nil {
+		log.Printf("ERROR: Failed to create file record: %v", err)
 		os.Remove(destPath)
 		h.sendJSON(w, http.StatusInternalServerError, Response{
 			Success: false,
@@ -2277,12 +2318,17 @@ func (h *Handler) ListImageFiles(w http.ResponseWriter, r *http.Request) {
 
 	filename := r.URL.Query().Get("filename")
 	if filename == "" {
+		log.Printf("ListImageFiles: missing filename parameter")
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "filename parameter required"})
 		return
 	}
 
+	log.Printf("ListImageFiles: requested for image: %s", filename)
+
 	baseDir := strings.TrimSuffix(filename, filepath.Ext(filename))
 	bootDir := filepath.Join(h.isoDir, baseDir)
+
+	log.Printf("ListImageFiles: boot directory: %s", bootDir)
 
 	type FileInfo struct {
 		Path  string `json:"path"`
@@ -2293,13 +2339,16 @@ func (h *Handler) ListImageFiles(w http.ResponseWriter, r *http.Request) {
 	var files []FileInfo
 
 	if _, err := os.Stat(bootDir); err == nil {
+		log.Printf("ListImageFiles: directory exists, walking files...")
 		err := filepath.Walk(bootDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
+				log.Printf("ListImageFiles: error accessing %s: %v", path, err)
 				return nil
 			}
 
 			relPath, err := filepath.Rel(bootDir, path)
 			if err != nil {
+				log.Printf("ListImageFiles: error getting relative path for %s: %v", path, err)
 				return nil
 			}
 
@@ -2317,8 +2366,12 @@ func (h *Handler) ListImageFiles(w http.ResponseWriter, r *http.Request) {
 		})
 
 		if err != nil {
-			log.Printf("Error walking directory %s: %v", bootDir, err)
+			log.Printf("ListImageFiles: error walking directory %s: %v", bootDir, err)
 		}
+
+		log.Printf("ListImageFiles: found %d files/folders", len(files))
+	} else {
+		log.Printf("ListImageFiles: boot directory does not exist: %s (error: %v)", bootDir, err)
 	}
 
 	h.sendJSON(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"files": files}})
@@ -2339,11 +2392,16 @@ func (h *Handler) DeleteImageFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("DeleteImageFile: invalid request body: %v", err)
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid request body"})
 		return
 	}
 
+	log.Printf("DeleteImageFile: request - filename=%s, base_dir=%s, path=%s, is_dir=%v, is_iso=%v",
+		req.Filename, req.BaseDir, req.Path, req.IsDir, req.IsIso)
+
 	if req.Filename == "" {
+		log.Printf("DeleteImageFile: missing filename")
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "filename is required"})
 		return
 	}
@@ -2366,19 +2424,70 @@ func (h *Handler) DeleteImageFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle individual file deletion
+	if req.Path != "" && !req.IsDir {
+		bootDir := filepath.Join(h.isoDir, req.BaseDir)
+		filePath := filepath.Join(bootDir, req.Path)
+
+		// Security check: ensure target is within boot directory
+		cleanTarget, err := filepath.Abs(filePath)
+		if err != nil {
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid path"})
+			return
+		}
+		cleanBootDir, _ := filepath.Abs(bootDir)
+		if !strings.HasPrefix(cleanTarget, cleanBootDir) {
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Path outside boot directory"})
+			return
+		}
+
+		if _, err := os.Stat(filePath); err != nil {
+			h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "File not found"})
+			return
+		}
+
+		if err := os.Remove(filePath); err != nil {
+			log.Printf("Error deleting file %s: %v", filePath, err)
+			h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: "Failed to delete file"})
+			return
+		}
+
+		log.Printf("Deleted file: %s", filePath)
+		h.sendJSON(w, http.StatusOK, Response{Success: true})
+		return
+	}
+
+	// Handle entire boot directory deletion (preserving autoinstall folder)
 	bootDir := filepath.Join(h.isoDir, req.BaseDir)
 	if _, err := os.Stat(bootDir); err != nil {
 		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Boot directory not found"})
 		return
 	}
 
-	if err := os.RemoveAll(bootDir); err != nil {
-		log.Printf("Error deleting boot directory %s: %v", bootDir, err)
-		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: "Failed to delete boot directory"})
+	// Read directory contents
+	entries, err := os.ReadDir(bootDir)
+	if err != nil {
+		log.Printf("Error reading boot directory %s: %v", bootDir, err)
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: "Failed to read boot directory"})
 		return
 	}
 
-	log.Printf("Deleted boot directory: %s", bootDir)
+	// Delete everything except autoinstall folder
+	for _, entry := range entries {
+		if entry.Name() == "autoinstall" {
+			log.Printf("Preserving autoinstall folder: %s/autoinstall", bootDir)
+			continue
+		}
+
+		entryPath := filepath.Join(bootDir, entry.Name())
+		if err := os.RemoveAll(entryPath); err != nil {
+			log.Printf("Error deleting %s: %v", entryPath, err)
+		} else {
+			log.Printf("Deleted: %s", entryPath)
+		}
+	}
+
+	log.Printf("Deleted boot directory contents (preserved autoinstall): %s", bootDir)
 
 	// Reset the image to sanboot mode and clear extracted flag
 	image, err := h.storage.GetImage(req.Filename)

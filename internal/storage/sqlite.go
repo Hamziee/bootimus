@@ -32,6 +32,23 @@ func (s *SQLiteStore) AutoMigrate() error {
 	if err := s.db.AutoMigrate(&models.User{}, &models.Client{}, &models.ImageGroup{}, &models.Image{}, &models.BootLog{}, &models.CustomFile{}, &models.DriverPack{}); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
+
+	// Clean up soft-deleted custom files
+	if err := s.cleanupSoftDeletedFiles(); err != nil {
+		return fmt.Errorf("failed to cleanup soft-deleted files: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SQLiteStore) cleanupSoftDeletedFiles() error {
+	result := s.db.Unscoped().Where("deleted_at IS NOT NULL").Delete(&models.CustomFile{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		fmt.Printf("Cleaned up %d soft-deleted custom files from database\n", result.RowsAffected)
+	}
 	return nil
 }
 
@@ -65,7 +82,7 @@ func (s *SQLiteStore) DeleteClient(mac string) error {
 
 func (s *SQLiteStore) ListImages() ([]*models.Image, error) {
 	var images []*models.Image
-	if err := s.db.Find(&images).Error; err != nil {
+	if err := s.db.Preload("Group").Find(&images).Error; err != nil {
 		return nil, err
 	}
 	return images, nil
@@ -237,6 +254,27 @@ func (s *SQLiteStore) GetCustomFileByID(id uint) (*models.CustomFile, error) {
 	return &file, nil
 }
 
+func (s *SQLiteStore) GetCustomFileByFilenameAndImage(filename string, imageID *uint, public bool) (*models.CustomFile, error) {
+	var files []models.CustomFile
+
+	// Find ALL records with this filename, regardless of public/imageID/deleted status
+	// This ensures we catch any record that would violate the unique constraint
+	if err := s.db.Unscoped().Where("filename = ?", filename).Find(&files).Error; err != nil {
+		return nil, err
+	}
+
+	// Delete all found records to avoid conflicts
+	if len(files) > 0 {
+		for _, f := range files {
+			s.db.Unscoped().Delete(&models.CustomFile{}, f.ID)
+		}
+		// Return the first one so the caller knows a file existed
+		return &files[0], nil
+	}
+
+	return nil, fmt.Errorf("record not found")
+}
+
 func (s *SQLiteStore) CreateCustomFile(file *models.CustomFile) error {
 	return s.db.Create(file).Error
 }
@@ -246,7 +284,7 @@ func (s *SQLiteStore) UpdateCustomFile(id uint, file *models.CustomFile) error {
 }
 
 func (s *SQLiteStore) DeleteCustomFile(id uint) error {
-	return s.db.Delete(&models.CustomFile{}, id).Error
+	return s.db.Unscoped().Delete(&models.CustomFile{}, id).Error
 }
 
 func (s *SQLiteStore) IncrementFileDownloadCount(id uint) error {

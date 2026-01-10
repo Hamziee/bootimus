@@ -2,5 +2,5 @@ package bootloaders
 
 import "embed"
 
-//go:embed *.efi *.kpxe wimboot thinos-kernel thinos-initrd.gz
+//go:embed *.efi *.kpxe bootenv/* wimboot
 var Bootloaders embed.FS

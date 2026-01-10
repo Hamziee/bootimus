@@ -1354,6 +1354,7 @@
 
             <div class="tabs" style="margin-bottom: 20px;">
                 <button class="tab active" data-tab="props-general" onclick="switchPropsTab('props-general')">General</button>
+                <button class="tab" data-tab="props-autoinstall" onclick="switchPropsTab('props-autoinstall')">Auto-Install</button>
                 <button class="tab" data-tab="props-files" onclick="switchPropsTab('props-files')">File Browser</button>
             </div>
 
@@ -1385,7 +1386,7 @@
                     <select id="image-props-boot-method" class="form-control">
                         <option value="sanboot">SAN Boot</option>
                         <option value="kernel">Kernel/Initrd</option>
-                        <option value="memdisk">Memdisk (ThinOS)</option>
+                        <option value="nbd">NBD Mount</option>
                     </select>
                 </div>
 
@@ -1405,11 +1406,56 @@
                 </div>
             </div>
 
+            <div id="props-autoinstall-content" class="props-tab-content" style="display: none;">
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="image-props-autoinstall-enabled" style="margin: 0; cursor: pointer;">
+                        <span>Enable Auto-Install</span>
+                    </label>
+                    <small style="color: #94a3b8; display: block; margin-top: 4px;">
+                        When enabled, boot parameters will be automatically injected to use this script
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label>Script Type</label>
+                    <select id="image-props-autoinstall-type" class="form-control">
+                        <option value="preseed">Preseed (Debian/Ubuntu)</option>
+                        <option value="kickstart">Kickstart (RHEL/CentOS/Fedora/Rocky)</option>
+                        <option value="autoinstall">Autoinstall (Ubuntu cloud-init)</option>
+                        <option value="autounattend">Autounattend (Windows)</option>
+                    </select>
+                    <small style="color: #94a3b8;">Select the installation script format</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Auto-Install Script</label>
+                    <textarea id="image-props-autoinstall-script" rows="20" style="font-family: monospace; width: 100%; padding: 8px; border: 1px solid #475569; border-radius: 4px; background: #1e293b; color: #e2e8f0;" placeholder="Enter your auto-install script content here..."></textarea>
+                    <small style="color: #94a3b8;">
+                        Script will be served at: http://server:port/autoinstall/<span id="image-props-autoinstall-url"></span>
+                    </small>
+                </div>
+            </div>
+
             <div id="props-files-content" class="props-tab-content" style="display: none;">
-                <div id="image-file-browser" style="min-height: 400px;">
+                <!-- File Upload Section -->
+                <div style="background: #1e293b; padding: 15px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #334155;">
+                    <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #60a5fa;">Upload File</h3>
+                    <form id="props-file-upload-form" onsubmit="event.preventDefault(); uploadPropsImageFile();">
+                        <div class="form-group" style="margin: 0 0 10px 0;">
+                            <label style="font-size: 13px;">File</label>
+                            <input type="file" id="props-file-input" class="form-control" required style="padding: 6px;">
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm">Upload</button>
+                    </form>
+                    <small style="color: #94a3b8; display: block; margin-top: 8px;">Max file size: 500MB. Files will be uploaded to the autoinstall folder.</small>
+                </div>
+
+                <!-- File Browser -->
+                <div id="image-props-files-list" style="max-height: 600px; overflow-y: auto; margin-right: -8px; padding-right: 16px;">
                     <div class="loading">
                         <div class="spinner"></div>
-                        Loading file browser...
+                        Loading files...
                     </div>
                 </div>
             </div>

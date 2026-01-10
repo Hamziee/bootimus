@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"bootimus/internal/udf"
+	"bootimus/internal/wim"
 
 	"github.com/kdomanski/iso9660"
 )
@@ -1100,6 +1101,44 @@ func (e *Extractor) extractUDFFile(reader *udf.Reader, file *udf.File, destDir, 
 			os.Remove(destPath)
 			return err
 		}
+	}
+
+	return nil
+}
+
+// ApplyDriverPacks injects driver packs into a Windows boot.wim file
+func (e *Extractor) ApplyDriverPacks(bootWimPath string, driverPackPaths []string) error {
+	if !wim.IsAvailable() {
+		return fmt.Errorf("wimlib-imagex is not installed - driver injection not available")
+	}
+
+	wimManager, err := wim.NewManager()
+	if err != nil {
+		return fmt.Errorf("failed to create WIM manager: %w", err)
+	}
+
+	// Get the number of images in the WIM
+	imageCount, err := wimManager.GetImageCount(bootWimPath)
+	if err != nil {
+		return fmt.Errorf("failed to get WIM image count: %w", err)
+	}
+
+	log.Printf("Found %d image(s) in boot.wim", imageCount)
+
+	// Inject drivers into image 2 (the main Windows PE image)
+	// Image 1 is typically the boot configuration, image 2 is the actual PE environment
+	imageIndex := 2
+	if imageCount < 2 {
+		imageIndex = 1
+	}
+
+	if err := wimManager.InjectDrivers(bootWimPath, driverPackPaths, imageIndex); err != nil {
+		return fmt.Errorf("failed to inject drivers: %w", err)
+	}
+
+	// Optimize the WIM after modification
+	if err := wimManager.OptimizeWIM(bootWimPath); err != nil {
+		log.Printf("Warning: Failed to optimize WIM: %v", err)
 	}
 
 	return nil

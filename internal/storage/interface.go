@@ -35,6 +35,7 @@ type Storage interface {
 	ListCustomFiles() ([]*models.CustomFile, error)
 	GetCustomFileByFilename(filename string) (*models.CustomFile, error)
 	GetCustomFileByID(id uint) (*models.CustomFile, error)
+	GetCustomFileByFilenameAndImage(filename string, imageID *uint, public bool) (*models.CustomFile, error)
 	CreateCustomFile(file *models.CustomFile) error
 	UpdateCustomFile(id uint, file *models.CustomFile) error
 	DeleteCustomFile(id uint) error
